@@ -1,0 +1,128 @@
+---
+title: "vants-faceit-webhook: recepción de eventos"
+sidebarTitle: "vants-faceit-webhook"
+description: "Conoce las rutas, autenticación, almacenamiento D1 y publicación opcional a VANTS-BUS del receptor de webhooks de FACEIT."
+keywords:
+  - "FACEIT"
+  - "webhook"
+  - "D1"
+  - "Cloudflare"
+  - "eventos"
+---
+
+[`vants-faceit-webhook`](https://github.com/vantsgames/vants-faceit-webhook) recibe eventos de FACEIT, los guarda en D1 y puede publicar eventos normalizados en VANTS-BUS. El código revisado usa D1, aunque algunos documentos del repositorio conservan referencias a Neon.
+
+## Estructura
+
+| Archivo | Función |
+| --- | --- |
+| `src/index.js` | Rutas, comprobación del secreto y almacenamiento |
+| `src/_d1.js` | Adaptador de consultas SQL a D1 |
+| `src/vants-bus-faceit.js` | Mapeo, deduplicación y reintentos hacia el bus |
+| `src/vants-bus-client.js` | Cliente del bus |
+| `wrangler.jsonc` | Configuración del Worker y binding `DB` |
+| `monitor/monitor.js` | Comprobaciones de disponibilidad |
+
+## Comprobar el Worker localmente
+
+Necesitas Git, npm y Node.js compatible con Wrangler. El manifiesto declara `wrangler ^4.0.0`, sin un mínimo propio de Node.js.
+
+```bash
+git clone https://github.com/vantsgames/vants-faceit-webhook.git
+cd vants-faceit-webhook
+npm install
+npx wrangler dev --port 8787
+```
+
+En otra terminal:
+
+```bash
+curl http://127.0.0.1:8787/healthz
+curl http://127.0.0.1:8787/api/webhooks/faceit
+```
+
+El segundo endpoint devuelve:
+
+```json
+{"ok":true,"ready":true}
+```
+
+Estas consultas no insertan eventos ni verifican la existencia de la tabla de almacenamiento.
+
+## Configuración necesaria para recibir eventos
+
+| Nombre | Función |
+| --- | --- |
+| `DB` | Binding D1 configurado en `wrangler.jsonc` |
+| `FACEIT_WEBHOOK_SECRET` | Secreto compartido requerido para aceptar POST |
+| `VANTS_BUS_URL` | Dirección opcional del bus |
+| `VANTS_BUS_SECRET` | Secreto opcional del bus |
+
+Para pruebas locales, configura los secretos de desarrollo en `.dev.vars`, sin subir el archivo a Git. Mantén el bus sin configurar durante las primeras comprobaciones. Para desplegar en otra cuenta, reemplaza los identificadores de D1 en la configuración y usa la gestión de secretos de Cloudflare.
+
+<Warning>
+  Este repositorio no incluye el esquema completo de `faceit_webhook_events`. Antes de probar inserciones, prepara una base de desarrollo con el esquema compatible del sistema. El código inserta `event_type` y `payload`; no basta con iniciar Wrangler para garantizar que esa tabla exista. El esquema del bot no la define.
+</Warning>
+
+## Autenticación
+
+Envía el secreto mediante una de estas cabeceras:
+
+- `x-vants-faceit-secret`
+- `x_vants_faceit_secret`
+- `faceit_webhook_secret`
+- `faceit-webhook-secret`
+
+El código también acepta esas variantes como parámetros de URL y el parámetro `secret`, pero prefiere una cabecera para evitar que el secreto aparezca en registros de URLs. Compara el valor recibido con `FACEIT_WEBHOOK_SECRET`; no es una firma criptográfica del cuerpo del evento.
+
+## Contrato HTTP
+
+| Método y ruta | Respuesta definida |
+| --- | --- |
+| `GET /healthz` | `200`, estado del Worker y `bus.configurado` |
+| `GET /api/webhooks/faceit` | `200`, `{"ok":true,"ready":true}` |
+| `HEAD /api/webhooks/faceit` | Sondeo de disponibilidad |
+| `POST /api/webhooks/faceit` | Almacena el cuerpo JSON autenticado |
+| Otros métodos en el callback | `405` |
+| Otras rutas | `404`, error `not_found` |
+
+En `/healthz`, `bus.configurado` solo es verdadero si existen `VANTS_BUS_URL`, `VANTS_BUS_SECRET` y `DB`. No realiza una prueba de conectividad al bus.
+
+El POST devuelve:
+
+| Condición | Estado | Cuerpo |
+| --- | --- | --- |
+| Evento almacenado | `200` | `{"ok":true,"stored":true}` |
+| Secreto ausente o incorrecto | `401` | `{"ok":false,"error":"unauthorized"}` |
+| JSON no válido | `400` | `{"ok":false,"error":"invalid_json"}` |
+| Error capturado durante la inserción | `500` | `{"ok":false,"error":"internal"}` |
+
+La creación del adaptador SQL ocurre antes del bloque que captura errores de inserción. Si falta por completo el binding `DB`, no se garantiza el cuerpo JSON `internal`.
+
+## Publicación en VANTS-BUS
+
+Después de guardar el evento, el Worker programa la publicación con `ctx.waitUntil`. El mapeo usa el campo `event` del objeto recibido:
+
+| Evento FACEIT | Evento del bus |
+| --- | --- |
+| `match_status_finished` | `match.finished` |
+| `match_object_created` | `match.scheduled` |
+| `match_status_canceled` | `match.canceled` |
+
+Los demás tipos pueden almacenarse, pero no generan un evento del bus. El almacenamiento acepta `event` o `type` para `event_type`; el mapeo al bus solo consulta `event`. El nombre de juego `csgo` se normaliza a `cs2`.
+
+La deduplicación del bus utiliza `event_id`, o `id` como alternativa, en `vants_bus_dedup`. Sin esos identificadores publica sin deduplicar y registra una advertencia. Esto no deduplica las filas de `faceit_webhook_events`.
+
+La publicación intenta hasta tres veces, con pausas de 500 y 1000 ms entre intentos fallidos. Si agota los intentos, intenta liberar el identificador reservado para permitir una entrega posterior; esa limpieza también puede fallar si la base de datos no responde.
+
+<Warning>
+  Un `200 stored` no confirma publicación en el bus. El fallo en segundo plano no cambia la respuesta ya enviada a FACEIT, y liberar el identificador no programa por sí solo otra entrega. Revisa los registros y el procedimiento de reprocesamiento del sistema.
+</Warning>
+
+## Monitor y fuentes
+
+El monitor consulta la raíz del Worker FACEIT y la web principal. Para la primera acepta estados inferiores a 500, por lo que no verifica la inserción de webhooks. Su workflow está programado cada 30 minutos.
+
+Fuentes: `src/index.js`, `src/_d1.js`, `src/vants-bus-faceit.js`, `wrangler.jsonc`, `package.json` y `monitor/` del commit `edc943c`. No se ejecutaron servicios ni pruebas.
+
+Consulta [vantsbot-cf](/repos/vantsbot-cf) para el consumidor Discord y [flask-agents](/repos/flask-agents) para el consumidor Python.

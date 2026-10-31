@@ -1,47 +1,83 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Primeros pasos"
+sidebarTitle: "Primeros pasos"
+description: "Elige el repositorio VANTS que necesitas, identifica su primera comprobación local y aprende a previsualizar y validar el portal de documentación."
+keywords:
+  - "VANTS"
+  - "inicio"
+  - "desarrollo local"
+  - "repositorios"
+  - "Mintlify"
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+No necesitas desplegar todos los proyectos para empezar. Elige un componente, lee sus requisitos y realiza una comprobación local antes de configurar integraciones externas.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+## Elige tu objetivo
 
-## Prerequisites
+| Quieres trabajar en | Empieza por | Primera comprobación |
+| --- | --- | --- |
+| Plataforma y torneos | [vantsgames](/repos/vantsgames) | Worker local y `GET /healthz` |
+| Lanzador o frontend | [vantshublauche](/repos/vantshublauche) | Ejecutar Electron o el servidor de desarrollo Astro |
+| Soporte y agentes | [flask-agents](/repos/flask-agents) | Flask local y `GET /healthz` |
+| Discord | [vantsbot-cf](/repos/vantsbot-cf) | D1 local y `GET /salud` |
+| Eventos FACEIT | [vants-faceit-webhook](/repos/vants-faceit-webhook) | Sondeo del callback local, sin insertar eventos |
+| Catálogo de clips | [vants-clips](/repos/vants-clips) | Leer `manifest.json` |
+| Monitoreo | [vants-proteger](/repos/vants-proteger) | Revisar destinos y marcadores antes de ejecutar el monitor |
+| Este portal | [mintlify-docs](/repos/mintlify-docs) | Previsualización con Mintlify |
+| El sitio vantsiap | [docs](/repos/docs) | Revisar su página y configuración independientes |
 
-Before you begin, you must have:
+## Previsualiza este portal
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+Este recorrido permite consultar la copia guardada en Git sin configurar Discord, Cloudflare o bases de datos.
 
-## Get started
+### Requisitos
+
+- Acceso de lectura a `vantsgames/mintlify-docs`.
+- Git, npm y Node.js 20.17.0 o superior, según los requisitos de la CLI de Mintlify.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
-
+  <Step title="Obtén el repositorio">
     ```bash
-    npm install your-package
+    git clone https://github.com/vantsgames/mintlify-docs.git
+    cd mintlify-docs
     ```
+
+    Los cambios que sigan como borradores del editor no aparecen en el clon hasta guardarse en Git.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
-
+  <Step title="Instala la CLI y abre la vista previa">
     ```bash
-    your-cli init
+    npm install -g mint
+    mint dev
     ```
+
+    Abre `http://localhost:3000` y comprueba la navegación y una guía de repositorio.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+  <Step title="Verifica tus cambios">
+    Desde la misma raíz, ejecuta:
 
     ```bash
-    your-cli start
+    mint validate
+    mint broken-links
     ```
+
+    Corrige los errores indicados antes de publicar. Estos comandos verifican documentación, no la ejecución de los proyectos descritos.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+Consulta la [instalación de la CLI de Mintlify](https://mintlify.com/docs/cli/install) si necesitas resolver problemas de instalación.
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## Antes de conectar servicios
+
+- Usa credenciales y bases de datos de desarrollo.
+- Comprueba las direcciones y organizaciones configuradas: algunos archivos conservan referencias antiguas.
+- Distingue variables opcionales de requisitos del componente que vas a ejecutar.
+- No interpretes una ruta de salud como verificación completa de todas las dependencias.
+- Revisa los efectos de tareas programadas, migraciones y scripts de sincronización.
+
+<Warning>
+  Ejecutar un proyecto localmente no impide que consulte servicios externos. Los comandos de despliegue, el SQL remoto y las rutas de notificación pueden modificar sistemas reales. Empieza con los ejemplos de lectura de cada guía.
+</Warning>
+
+## Siguiente paso
+
+Consulta [cómo mantener mintlify-docs](/repos/mintlify-docs) o abre la guía del componente que elegiste. Cada página incluye sus fuentes y limitaciones conocidas.

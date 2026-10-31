@@ -1,0 +1,92 @@
+---
+title: "vants-clips: índice de clips destacados"
+sidebarTitle: "vants-clips"
+description: "Consulta la estructura del manifest de clips, sus metadatos y enlaces de vídeo, y el monitor de disponibilidad incluido en vants-clips."
+keywords:
+  - "clips"
+  - "manifest"
+  - "vídeos"
+  - "GitHub Releases"
+  - "VANTS"
+---
+
+[`vants-clips`](https://github.com/vantsgames/vants-clips) contiene `manifest.json`, un índice de clips destacados, y un monitor de la página de clips. No incluye un servidor de subida.
+
+La implementación de gestión de clips se encuentra en `vants-server/worker.js` de [vantsgames](/repos/vantsgames). El código revisado utiliza GitHub Releases y un manifest, pero apunta a `VANTSNET/vants-clips`; revisa ese destino antes de asumir que escribe en este repositorio.
+
+## Leer el índice
+
+Clona el repositorio y consulta el archivo local:
+
+```bash
+git clone https://github.com/vantsgames/vants-clips.git
+cd vants-clips
+cat manifest.json
+```
+
+Si tienes `jq`, puedes filtrar campos sin mostrar identificadores de usuarios:
+
+```bash
+jq '.[] | {id, juego, dur}' manifest.json
+```
+
+## Campos del manifest
+
+El archivo es un array de objetos con estos campos observados:
+
+| Campo | Tipo | Contenido |
+| --- | --- | --- |
+| `id` | string | Identificador del clip |
+| `sub` | string | Identificador del usuario en autenticación |
+| `username`, `nick` | string | Nombres asociados al usuario |
+| `titulo`, `juego` | string | Título y juego |
+| `ext` | string | Extensión del vídeo |
+| `fecha` | string | Fecha en formato ISO 8601 |
+| `dur` | number | Duración en segundos |
+| `tam` | number | Tamaño en bytes |
+| `video`, `thumb` | string | URLs del vídeo y la miniatura |
+
+<Warning>
+  `sub`, `username` y `nick` pueden identificar a una persona. No copies valores reales en ejemplos ni publiques metadatos de usuarios sin revisar su tratamiento y visibilidad.
+</Warning>
+
+Ejemplo completamente ficticio de una entrada:
+
+```json
+{
+  "id": "clip-ejemplo",
+  "sub": "proveedor|usuario-ficticio",
+  "username": "usuario_ejemplo",
+  "nick": "Jugador de ejemplo",
+  "titulo": "Jugada de ejemplo",
+  "juego": "VALORANT",
+  "ext": "mp4",
+  "fecha": "2026-10-20T12:00:00.000Z",
+  "dur": 15,
+  "tam": 10485760,
+  "video": "https://example.com/clip-ejemplo/video.mp4",
+  "thumb": "https://example.com/clip-ejemplo/thumb.jpg"
+}
+```
+
+Los enlaces almacenados en la revisión consultada usan GitHub Releases bajo `VANTSgg`. No se comprobó su disponibilidad ni una redirección hacia la organización actual. Los vídeos no están incluidos como archivos en el árbol revisado.
+
+## Monitor de disponibilidad
+
+Con Node.js 20, la versión utilizada por el workflow, ejecuta desde la raíz:
+
+```bash
+node monitor/monitor.js
+```
+
+El comando realiza una petición real a `https://vants.vants.workers.dev/clips.html`. Considera correcto un estado HTTP de 200 a 399 y termina con código `1` si falla. Informa estado y tiempo de respuesta; no valida cada vídeo o miniatura del manifest.
+
+El script fija `TIMEOUT = 15000`. No carga `monitor/config.example.json`, por lo que cambiar `slowMs`, `timeoutMs` o `webhookUrl` en ese ejemplo no modifica su comportamiento.
+
+`.github/workflows/monitor.yml` declara una ejecución cada 30 minutos y activación manual. Usa permisos `contents: read` e `issues: write` para abrir, actualizar o cerrar incidentes con la etiqueta `monitor-caida`.
+
+## Fuentes
+
+Commit `6f8100e`: `README.md`, `manifest.json`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. La relación con la plataforma se contrastó con `vants-server/worker.js` del commit `96dbfcb` de `vantsgames`. No se ejecutaron monitores ni pruebas.
+
+Consulta [vants-proteger](/repos/vants-proteger) para el monitor de la web y del bot.

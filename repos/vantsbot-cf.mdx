@@ -1,0 +1,123 @@
+---
+title: "vantsbot-cf: bot HTTP de Discord"
+sidebarTitle: "vantsbot-cf"
+description: "Configura el bot de Discord en Cloudflare Workers, prepara D1 local y conoce sus comandos, rutas protegidas e integraciones con agentes y eventos."
+keywords:
+  - "Discord"
+  - "Cloudflare Workers"
+  - "D1"
+  - "VANTS-BUS"
+  - "bot"
+---
+
+[`vantsbot-cf`](https://github.com/vantsgames/vantsbot-cf) implementa un bot de Discord mediante un endpoint HTTP de interacciones. Utiliza Cloudflare D1 para datos y estado, sin conexión persistente al gateway de Discord.
+
+## Estructura
+
+| Archivo | Responsabilidad |
+| --- | --- |
+| `src/index.js` | Rutas HTTP, despacho de comandos y tareas programadas |
+| `src/defs.js` | Definiciones de comandos registradas en Discord |
+| `src/comandos.js` y `src/staff.js` | Consultas y moderación |
+| `src/bridge.js` | Puente hacia soporte, agente y notificaciones |
+| `src/bus.js` | Consumo y publicación en VANTS-BUS |
+| `src/kick.js` | Manejador de eventos de directos |
+| `src/openai.js` y `src/fabrica.js` | IA y máquina de estados de la fábrica |
+| `schema.sql` y `migraciones/` | Esquema D1 y cambios incrementales |
+| `wrangler.toml` | Bindings, variables y cron |
+
+## Preparación local
+
+Necesitas Git, npm y Node.js compatible con Wrangler. El manifiesto declara `wrangler ^4.0.0`, sin un campo `engines` propio.
+
+```bash
+git clone https://github.com/vantsgames/vantsbot-cf.git
+cd vantsbot-cf
+npm install
+npx wrangler d1 execute vants-db --local --file=schema.sql
+npm run dev -- --port 8787
+```
+
+La orden D1 anterior inicializa la base **local**. El script `npm run schema` del repositorio usa `--remote`: no es equivalente y modifica la base remota.
+
+En otra terminal:
+
+```bash
+curl http://127.0.0.1:8787/salud
+```
+
+La respuesta incluye `ok`, `fn`, `db`, `config` y diagnósticos de tablas. El manejador puede devolver `ok: true` aunque una tabla tenga un error; inspecciona también el resto de campos.
+
+<Warning>
+  Para esta comprobación no añadas credenciales de producción. Otras rutas y tareas pueden enviar mensajes a Discord o consultar servicios externos. El entorno local no convierte esas integraciones en simulaciones.
+</Warning>
+
+## Configuración de integración
+
+| Nombre | Uso |
+| --- | --- |
+| `DB` | Binding D1 del bot |
+| `DISCORD_GUILD_ID`, `DISCORD_APP_ID` | Servidor y aplicación de Discord |
+| `DISCORD_BOT_TOKEN` | Credencial para la API de Discord |
+| `DISCORD_PUBLIC_KEY` | Clave pública para verificar firmas de interacciones |
+| `VANTS_BOT_SECRET` | Secreto de las rutas internas, enviado como `x-vants-bot` |
+| `VANTS_WEB_URL` | Dirección de la plataforma |
+| `AGENTE_URL`, `AGENTE_TOKEN` | API y token del servicio de agentes |
+| `AGENTE_HQ_URL` | Web Flask usada por soporte |
+| `VANTS_BUS_URL`, `VANTS_BUS_PROJECT`, `VANTS_BUS_SECRET` | Destino, identidad y secreto del bus |
+| `VANTS_BUS_SERVICE` | Service Binding opcional hacia el bus |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Proveedores opcionales de IA |
+| `KICK_CLIENT_SECRET`, `KICK_USERNAME` | Configuración del manejador de directos |
+
+Guarda credenciales fuera del código. Revisa los valores ya incluidos en `wrangler.toml` antes de utilizar otra cuenta o servidor de Discord.
+
+## Rutas HTTP
+
+| Método y ruta | Protección y efecto |
+| --- | --- |
+| `GET /salud` | Diagnóstico público |
+| `POST /` | Interacciones verificadas con firma Ed25519 |
+| `POST /setup` | `x-vants-bot`; reemplaza el conjunto de comandos del servidor |
+| `POST /tarea` | `x-vants-bot`; procesa alertas y envía mensajes |
+| `POST /bus-test` | `x-vants-bot`; genera un anuncio de prueba |
+| `POST /kick-test` | `x-vants-bot`; genera un aviso de directo |
+| `POST /evento-discord` | `x-vants-bot`; procesa eventos del puente |
+| `POST /avisar` | `x-vants-bot`; envía notificaciones |
+| `POST /kick` | Verificación implementada en `src/kick.js` |
+
+Configura el endpoint de interacciones de Discord con la raíz del Worker desplegado. Hazlo solo después de preparar D1, credenciales y permisos.
+
+<Warning>
+  `/setup` hace un `PUT` de la lista completa de comandos en Discord. Puede sustituir comandos previamente registrados. `/bus-test` y `/kick-test` generan efectos reales si hay credenciales y canales configurados.
+</Warning>
+
+## Comandos e integraciones
+
+- **Consulta:** `/ayuda`, `/perfil`, `/ranking`, `/torneos`, `/eventos`, `/calendario`, `/planes`, `/reglas` y `/vincular`.
+- **Soporte e IA:** `/soporte` consulta la web Flask; `/ia` usa los proveedores configurados.
+- **Administración:** `/vants`, `/warn`, `/kick`, `/ban`, `/mute`, `/unmute`, `/clear`, `/lock`, `/unlock` e `/informe`.
+- **Agentes:** `/agente` consulta estado, incidentes o envía órdenes al servicio Node.js.
+- **Fábrica:** `/fabrica` gestiona corridas y etapas guardadas en D1.
+
+Los permisos se definen en `src/defs.js` y se comprueban también al procesar comandos. No confundas visibilidad del comando con autorización de una operación.
+
+Las etiquetas `main_directo` y `via_pr` de la fábrica representan decisiones de su máquina de estados; no son prueba de que se haya publicado código o abierto una solicitud de cambios. Los alias de modelos del repositorio tampoco garantizan disponibilidad o acceso en un proveedor.
+
+El cron declarado se ejecuta cada minuto para consumir el bus y procesar alertas. `src/bus.js` prefiere `VANTS_BUS_SERVICE` si existe y, en caso contrario, usa la URL configurada. El cursor se conserva en la tabla `bus_estado`.
+
+## Pruebas y diagnóstico
+
+Desde la raíz:
+
+```bash
+node test_local.mjs
+node test_smoke.mjs
+```
+
+Estos archivos contienen comprobaciones de comandos y escenarios con entorno simulado. No sustituyen pruebas de firmas, permisos y servicios en un entorno de integración. Para una instalación existente, revisa las migraciones aplicadas antes de ejecutar SQL incremental: no apliques cambios de columnas a ciegas.
+
+## Fuentes
+
+Commit revisado: `b696161`. Fuentes: `package.json`, `schema.sql`, `src/index.js`, `src/defs.js`, `src/bridge.js`, `src/bus.js`, `src/fabrica.js`, `wrangler.toml`, `test_local.mjs` y `test_smoke.mjs`. No se desplegó el bot ni se ejecutaron pruebas.
+
+Consulta también [flask-agents](/repos/flask-agents) y [FACEIT Webhook](/repos/vants-faceit-webhook).

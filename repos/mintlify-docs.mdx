@@ -1,0 +1,84 @@
+---
+title: "mintlify-docs: portal técnico VANTSCC"
+sidebarTitle: "mintlify-docs"
+description: "Mantén el portal técnico VANTSCC: estructura de páginas, navegación por repositorios, previsualización local y comprobaciones antes de publicar."
+keywords:
+  - "VANTSCC"
+  - "mintlify-docs"
+  - "documentación"
+  - "mantenimiento"
+---
+
+[`vantsgames/mintlify-docs`](https://github.com/vantsgames/mintlify-docs) es el repositorio asociado a este portal de documentación. Reúne guías en español de los nueve repositorios accesibles de `vantsgames`.
+
+El portal documenta el código de otros repositorios; no ejecuta sus Workers, bots, agentes o aplicaciones de escritorio.
+
+## Estructura del portal
+
+| Ruta | Función |
+| --- | --- |
+| `docs.json` | Identidad visual, navegación y enlaces del sitio |
+| `index.mdx` | Catálogo de repositorios |
+| `quickstart.mdx` | Primeros pasos para consultar y mantener las guías |
+| `repos/` | Guía técnica de cada repositorio |
+| `logo/` y `favicon.svg` | Recursos visuales |
+| `README.md` | Instrucciones del repositorio |
+| `AGENTS.md` | Convenciones para asistentes de edición |
+
+La navegación organiza las guías en **Inicio**, **Plataforma**, **Agentes e integraciones**, **Contenido y protección** y **Documentación**. `docs.json` configura el nombre `VANTSCC` y el tema `mint`.
+
+## Previsualizar una copia local
+
+Necesitas acceso al repositorio, Git, npm y Node.js 20.17.0 o superior para Mintlify.
+
+```bash
+git clone https://github.com/vantsgames/mintlify-docs.git
+cd mintlify-docs
+npm install -g mint
+mint dev
+```
+
+Abre `http://localhost:3000`. El clon solo contiene lo que esté guardado en Git: no incluye cambios que todavía sean borradores del editor.
+
+## Actualizar una guía
+
+1. Revisa el código del repositorio correspondiente y anota su revisión.
+2. Comprueba scripts, variables, rutas y dependencias antes de documentarlos.
+3. Edita la guía existente en `repos/` y conserva su ruta para no romper enlaces.
+4. Actualiza título, descripción y enlaces si cambia el alcance.
+5. Distingue las funciones implementadas de las descritas únicamente en un README o plan.
+
+<Warning>
+  No copies archivos `.env`, tokens, identificadores personales ni respuestas reales de usuarios en ejemplos. Usa datos ficticios y reserva las operaciones de escritura para entornos de desarrollo expresamente preparados.
+</Warning>
+
+## Añadir otro repositorio
+
+Crea una página MDX con metadatos y secciones de propósito, estructura, configuración, uso, pruebas y fuentes. Añade su ruta sin extensión al grupo apropiado de `docs.json` y enlázala desde [Inicio](/index).
+
+Incluye las limitaciones encontradas. Por ejemplo, una tabla requerida que no tenga migración en el repositorio debe figurar como requisito pendiente, no convertirse en SQL inventado.
+
+## Verificar antes de publicar
+
+Desde la raíz del clon:
+
+```bash
+mint validate
+mint broken-links
+```
+
+Revisa además:
+
+- Que cada entrada de navegación tenga contenido.
+- Que los ejemplos indiquen el directorio desde el que se ejecutan.
+- Que los comandos locales no apunten accidentalmente a producción.
+- Que las referencias a organizaciones o repositorios antiguos estén señaladas.
+- Que no se presenten pruebas descritas en el código como pruebas ejecutadas.
+
+Estas comprobaciones de documentación no sustituyen las pruebas de los proyectos documentados. Revisa los cambios y publícalos de forma explícita cuando estén listos.
+
+## Fuentes
+
+La estructura descrita corresponde a las páginas y configuración de este portal. Referencias de Mintlify: [CLI](https://mintlify.com/docs/cli/index) y [metadatos de páginas](https://mintlify.com/docs/organize/pages).
+
+Para distinguir el otro repositorio de documentación de la organización, consulta [docs](/repos/docs).

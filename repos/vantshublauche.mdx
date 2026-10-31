@@ -1,0 +1,131 @@
+---
+title: "vantshublauche: HUB, webapp y servicios"
+sidebarTitle: "vantshublauche"
+description: "Conoce los componentes Electron, Astro, Docker y MCP de vantshublauche, sus comandos de desarrollo y las configuraciones que debes revisar."
+keywords:
+  - "VANTS HUB"
+  - "Electron"
+  - "Astro"
+  - "Docker"
+  - "MCP"
+---
+
+[`vantshublauche`](https://github.com/vantsgames/vantshublauche) contiene el lanzador de escritorio VANTS HUB, una webapp Astro, servicios Node.js en contenedores, un servidor MCP y código de la plataforma.
+
+Esta guía se basa en el commit `080d76b`. No presupone que sus archivos coincidan con los del repositorio [vantsgames](/repos/vantsgames), aunque comparten nombres de componentes.
+
+## Elige un componente
+
+| Directorio | Función |
+| --- | --- |
+| `desktop-electron/` | Aplicación de escritorio con Electron |
+| `webapp/` | Webapp con Astro, React y Vue |
+| `services/api-gateway/` | API gateway en el puerto 8080 |
+| `services/matchmaking-service/` | Servicio de matchmaking en el puerto 8081 |
+| `mcp/` | Servidor MCP por entrada y salida estándar |
+| `vants-server/` | Worker de Cloudflare y recursos web |
+| `bot/`, `neon-functions/`, `db/migrations/` | Bot, funciones y migraciones |
+| `android/` | Configuración de la aplicación Android |
+
+Clona el repositorio una vez:
+
+```bash
+git clone https://github.com/vantsgames/vantshublauche.git
+cd vantshublauche
+```
+
+Cada procedimiento siguiente comienza en esa raíz, en una terminal independiente.
+
+## Ejecutar VANTS HUB
+
+Necesitas Node.js, npm y un entorno gráfico compatible con Electron. El manifiesto no fija una versión mínima de Node.js; comprueba los requisitos de las dependencias al instalarlas.
+
+```bash
+cd desktop-electron
+npm install
+npm start
+```
+
+`npm start` ejecuta `electron .`. La entrada es `main.js`; el paquete incluye `preload.js`, `renderer/`, `seguridad.js`, `telemetria.js` y `vants-bus-consumer.js`.
+
+El script de empaquetado Windows x64 es:
+
+```bash
+npm run dist:win
+```
+
+La configuración de Electron Builder define instaladores MSI y NSIS en `dist/`. El empaquetado necesita las herramientas de compilación apropiadas del entorno; no se verificó un build durante esta revisión.
+
+<Warning>
+  `desktop-electron/package.json` configura GitHub Releases en `feispla/Vants`. Revisa ese destino antes de publicar versiones o usar la autoactualización. El lanzador también integra servicios externos y telemetría; ejecutarlo no equivale a una prueba aislada.
+</Warning>
+
+## Desarrollar la webapp
+
+```bash
+cd webapp
+npm install
+npm run dev
+```
+
+Abre la dirección que indique Astro en la terminal. Para comprobar tipos y compilar:
+
+```bash
+npm run check
+npm run build
+```
+
+Los scripts corresponden a `astro check` y `astro build`. `webapp/package.json` declara Astro, React, Vue y Three.js, pero no un campo `engines`. No asumas que la versión de Node.js usada por otro componente satisface estas dependencias.
+
+Revisa `webapp/astro.config.mjs` para la configuración de compilación y `webapp/src/components/` para las islas de interfaz, como `Explore.tsx` y `Emblema3D.vue`.
+
+## Arrancar servicios con Docker
+
+Necesitas Docker con Compose. Desde la raíz:
+
+```bash
+docker compose up --build
+```
+
+En otra terminal:
+
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8081/healthz
+```
+
+`docker-compose.yml` publica los puertos 8080 y 8081. Pasa `ALLOW_ORIGIN` a ambos servicios y `DATABASE_URL` a matchmaking. Si `DATABASE_URL` está vacía, la configuración contempla el modo memoria, sin persistencia en una base externa.
+
+<Note>
+  Compose no declara `env_file` para los archivos `.env` dentro de cada servicio. Copiar allí los ejemplos no basta para suministrar las variables de Compose: usa el entorno de la terminal o un archivo `.env` en la raíz donde se encuentra `docker-compose.yml`.
+</Note>
+
+Los puertos publicados no están restringidos a `127.0.0.1` en el archivo Compose. Usa un entorno de desarrollo con acceso de red controlado. Una respuesta saludable no demuestra que las funciones dependientes de una base externa estén disponibles.
+
+## Conectar el servidor MCP
+
+`mcp/server.mjs` usa módulos estándar de Node.js y `fetch`. Configura un cliente MCP para iniciar este proceso con una ruta absoluta:
+
+```json
+{
+  "command": "node",
+  "args": ["/RUTA/ABSOLUTA/vantshublauche/mcp/server.mjs"]
+}
+```
+
+Es la configuración del proceso, que debes insertar en el formato que use tu cliente. El servidor espera mensajes JSON-RPC por stdin, no sirve una página HTTP.
+
+| Herramienta | Consulta |
+| --- | --- |
+| `estado_db` | Archivo `estado-db.json` en GitHub |
+| `torneos` | `/api/tournaments` del Worker |
+| `jugadores` | `/api/players` del Worker |
+| `partidos` | `/api/matches`, con filtro opcional `juego` |
+
+Estas herramientas realizan lecturas de red. Los destinos están fijados en `RAW_ESTADO` y `WORKER`; el primero conserva una referencia a `feispla/Vants`. Revisa disponibilidad y contenido antes de exponer las respuestas a otros usuarios.
+
+## Fuentes y mantenimiento
+
+Fuentes: `desktop-electron/package.json`, `webapp/package.json`, `docker-compose.yml`, `mcp/server.mjs` y el árbol del commit `080d76b`. No se ejecutaron aplicaciones, compilaciones ni pruebas.
+
+Para cambios de backend, revisa los archivos de `vants-server/` de este repositorio, sin asumir paridad con [vantsgames](/repos/vantsgames). Para integrar soporte y vigilancia, consulta [flask-agents](/repos/flask-agents).

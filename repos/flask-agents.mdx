@@ -1,0 +1,146 @@
+---
+title: "flask-agents: soporte y servicio de agentes"
+sidebarTitle: "flask-agents"
+description: "Ejecuta la web Flask y conoce la API del servicio de agentes, sus modos de memoria, autenticación, variables e integración con VANTS-BUS."
+keywords:
+  - "Flask"
+  - "agentes"
+  - "Fastify"
+  - "VANTS-BUS"
+  - "soporte"
+---
+
+[`flask-agents`](https://github.com/vantsgames/flask-agents) contiene dos aplicaciones independientes: una web Flask de soporte y un servicio Node.js de vigilancia y acciones. También incluye un consumidor Python del bus de eventos.
+
+## Componentes
+
+| Ruta | Responsabilidad |
+| --- | --- |
+| `main.py` | Aplicación Flask y arranque opcional del consumidor |
+| `endpoints/` | Páginas web y API de soporte |
+| `soporte/` | Respuestas mediante reglas o un proveedor LLM |
+| `services/agent-service/` | API Fastify, CLI, memoria y herramientas del agente |
+| `vants_bus/` | Cliente y consumidor Python de VANTS-BUS |
+| `db/migrations/` | Esquemas SQL del agente |
+| `scripts/` | Pruebas del agente, sandbox y capa LLM |
+
+## Iniciar la web Flask
+
+`pyproject.toml` declara Python 3.9 o superior. Usa un entorno virtual; los siguientes comandos son para una terminal POSIX:
+
+```bash
+git clone https://github.com/vantsgames/flask-agents.git
+cd flask-agents
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python main.py
+```
+
+La entrada configura el puerto 8000. En otra terminal:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+```
+
+El código define esta respuesta:
+
+```json
+{"ok":true,"servicio":"web-agentes-vants"}
+```
+
+<Warning>
+  `main.py` inicia Flask con `debug=True` y escucha en `0.0.0.0`. Úsalo solo en un entorno de desarrollo protegido, no expuesto a internet. Si el entorno ya contiene `VANTS_BUS_URL` y `VANTS_BUS_SECRET`, también puede activarse el consumidor de eventos.
+</Warning>
+
+### API de soporte
+
+| Método y ruta | Función |
+| --- | --- |
+| `GET /healthz` | Estado del proceso Flask |
+| `GET /api/agentes` | Catálogo de agentes |
+| `GET /api/ia` | Configuración funcional de la capa IA |
+| `POST /api/chat` | Respuesta de soporte |
+| `GET /vants/bus` | Estado del consumidor del bus |
+
+El chat recibe `mensaje` y un `historial` opcional. Conserva los últimos diez elementos del historial y rechaza mensajes vacíos o de más de 2000 caracteres.
+
+```bash
+curl http://127.0.0.1:8000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"mensaje":"¿Qué puede hacer el soporte?","historial":[]}'
+```
+
+La respuesta incluye `ok`, `modo`, `modelo` y `respuesta`. Sin clave del proveedor se usa el modo reglas. Con `AGENT_LLM_KEY`, la petición puede consumir una API externa.
+
+## Iniciar el servicio Node.js
+
+Desde la raíz del clon, en otra terminal:
+
+```bash
+cd services/agent-service
+npm install
+npm start
+```
+
+`npm start` ejecuta `node server.js`. El manifiesto declara `node >=18`, pero debes comprobar también los requisitos de las dependencias instaladas, incluida Fastify 5. No tomes ese mínimo como una garantía de compatibilidad de todo el conjunto.
+
+```bash
+curl http://127.0.0.1:8082/healthz
+```
+
+La respuesta contiene `ok`, `service`, `version`, `uptime`, `memoria`, `cerebro` y `sandbox`. Su contenido depende del entorno y no prueba que los chequeos externos hayan pasado.
+
+<Warning>
+  El servicio escucha en `0.0.0.0`. Sin `AGENT_TOKEN`, las rutas `/api/v1/*` quedan abiertas. Configura un token y restringe el acceso de red antes de habilitar credenciales, herramientas o acceso compartido. Los límites de comandos del módulo sandbox no sustituyen el aislamiento del proceso.
+</Warning>
+
+### API del agente
+
+`GET /healthz` es público. Si defines `AGENT_TOKEN`, las rutas siguientes exigen `Authorization: Bearer <token>`:
+
+| Método y ruta | Operación |
+| --- | --- |
+| `GET /api/v1/estado` | Último ciclo e incidentes abiertos |
+| `GET /api/v1/incidentes` | Lista de incidentes |
+| `GET /api/v1/memoria` | Recuerdos, con búsqueda opcional `q` |
+| `GET /api/v1/archivos` | Archivos registrados, con filtro `prefijo` |
+| `POST /api/v1/ciclo` | Ejecuta vigilancia |
+| `POST /api/v1/comando` | Procesa una orden en el campo `texto` |
+| `POST /api/v1/incidentes/:id/resolver` | Resuelve un incidente |
+| `POST /api/v1/memoria` | Guarda `clave` y `valor` |
+
+Los ciclos y comandos pueden hacer peticiones externas y acciones con las credenciales disponibles. No los uses como simple comprobación de arranque.
+
+## Variables de entorno
+
+| Variable | Uso |
+| --- | --- |
+| `PORT` | Puerto del agente, 8082 por defecto |
+| `AGENT_TOKEN` | Protección de la API del agente |
+| `DATABASE_URL` | Persistencia PostgreSQL; sin ella usa memoria RAM |
+| `AGENT_LLM_KEY`, `AGENT_LLM_URL`, `AGENT_LLM_MODEL` | Proveedor y modelo LLM |
+| `AGENT_URL` | Destino del agente consultado por la web de soporte |
+| `URLS_WEB`, `URLS_WORKER_FACEIT`, `URLS_MATCHMAKING` | Destinos de vigilancia |
+| `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `VERCEL_TOKEN` | Integraciones de diagnóstico y acciones |
+| `VANTS_BUS_URL`, `VANTS_BUS_SECRET` | Activación y autenticación del consumidor Python |
+
+Consulta los dos archivos `.env.example`, en la raíz y en `services/agent-service/`. Son referencias: los comandos anteriores leen el entorno del proceso y no cargan automáticamente esos archivos de ejemplo.
+
+## Bus y pruebas
+
+El consumidor integrado se activa solo con la configuración del bus y se deshabilita en el entorno Vercel según su implementación. El cursor permite continuar desde una posición guardada; no implica una garantía general de entrega exactamente una vez.
+
+Ejecuta las pruebas disponibles desde la raíz del repositorio:
+
+```bash
+node scripts/test_agente.js
+node scripts/test_sandbox_agente.js
+node scripts/test_llm_agente.js
+```
+
+## Fuentes
+
+Commit revisado: `3282d92`. Fuentes: `main.py`, `pyproject.toml`, `requirements.txt`, `endpoints/api.py`, `endpoints/web.py`, `services/agent-service/package.json`, `server.js`, archivos de ejemplo de entorno y `vants_bus/consumer.py`. No se ejecutaron servicios ni pruebas.
+
+El [bot de Discord](/repos/vantsbot-cf) integra el chat de soporte y la API del agente mediante configuraciones separadas.

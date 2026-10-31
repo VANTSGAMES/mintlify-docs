@@ -1,0 +1,74 @@
+---
+title: "vants-proteger: monitor de disponibilidad"
+sidebarTitle: "vants-proteger"
+description: "Ejecuta el monitor de la web y el bot de VANTS, interpreta sus comprobaciones y conoce el workflow que gestiona incidentes en GitHub."
+keywords:
+  - "monitor"
+  - "disponibilidad"
+  - "Discord"
+  - "GitHub Actions"
+  - "VANTS"
+---
+
+El contenido revisado de [`vants-proteger`](https://github.com/vantsgames/vants-proteger) se limita a un monitor Node.js, un archivo de configuración de ejemplo, un workflow y el README. No contiene las aplicaciones web, de escritorio o Android mencionadas en partes del README.
+
+<Note>
+  El README conserva texto contradictorio y un separador `=======`. Esta guía describe los archivos presentes en el commit `d879d6a`, sin inferir que las aplicaciones mencionadas estén desplegadas o disponibles en este repositorio.
+</Note>
+
+## Ejecutar el monitor
+
+Necesitas Git y Node.js 20, la versión utilizada en el workflow. No hay dependencias npm que instalar para este script.
+
+```bash
+git clone https://github.com/vantsgames/vants-proteger.git
+cd vants-proteger
+node monitor/monitor.js
+```
+
+<Warning>
+  El comando consulta servicios externos reales. Revisa los destinos de `CHECKS` antes de ejecutarlo en otro entorno. Esta guía no representa una comprobación actual de su disponibilidad.
+</Warning>
+
+## Comprobaciones
+
+| Destino | URL | Marcador esperado |
+| --- | --- | --- |
+| Web | `https://vants.vants.workers.dev/` | `VANTS GAMES` |
+| Bot Discord | `https://vantsbot.vants.workers.dev/salud` | `"ok":true` |
+
+El script sigue redirecciones, comprueba un estado HTTP de 200 a 399 y busca los marcadores en los primeros 20 000 caracteres del cuerpo. Imprime el resultado, el estado HTTP y el tiempo de respuesta de cada consulta.
+
+Si una comprobación falla, finaliza con código `1`. Si todas pasan, finaliza normalmente. Los tiempos impresos son mediciones de esa ejecución, no objetivos de rendimiento.
+
+El marcador del bot solo comprueba la presencia del texto `"ok":true`. No interpreta el resto de su diagnóstico ni garantiza que las tablas D1 o integraciones estén disponibles.
+
+## Configuración
+
+Los destinos se definen en `CHECKS` y el tiempo límite en `TIMEOUT = 15000` dentro de `monitor/monitor.js`.
+
+`monitor/config.example.json` contiene `webhookUrl`, `slowMs` y `timeoutMs`, pero el script no lee ese archivo. Modificarlo no cambia los destinos, no aplica un umbral de latencia ni activa notificaciones por webhook.
+
+Para adaptar el monitor, cambia explícitamente las constantes del script y revisa el resultado antes de actualizar la programación.
+
+## GitHub Actions e incidentes
+
+`.github/workflows/monitor.yml` define:
+
+- Programación `*/30 * * * *` y activación manual mediante `workflow_dispatch`.
+- Preparación de Node.js 20 y ejecución del monitor.
+- Apertura o actualización de un issue con etiqueta `monitor-caida` si hay fallo.
+- Comentario de recuperación y cierre de los issues abiertos con esa etiqueta cuando vuelve a pasar.
+- Permisos `contents: read` e `issues: write`.
+
+La programación declarada no demuestra que el workflow esté habilitado o ejecutándose actualmente. Comprueba su historial en GitHub Actions para conocer resultados reales.
+
+## Límites y fuentes
+
+Este repositorio comprueba respuestas HTTP; no implementa una API, protección antitrampas ni un sistema completo de seguridad. Tampoco prueba autenticación, operaciones de escritura o la integridad de los datos.
+
+Fuentes del commit `d879d6a`: `README.md`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. No se ejecutaron servicios ni pruebas.
+
+- [vantsgames](/repos/vantsgames): plataforma web consultada por el monitor.
+- [vantsbot-cf](/repos/vantsbot-cf): código del bot y su diagnóstico de salud.
+- [vants-clips](/repos/vants-clips): monitor específico de la página de clips.

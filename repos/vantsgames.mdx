@@ -1,0 +1,121 @@
+---
+title: "vantsgames: plataforma y Worker"
+sidebarTitle: "vantsgames"
+description: "Explora el Worker de la plataforma VANTS, sus bindings D1, rutas HTTP, integraciones y comandos de desarrollo y pruebas disponibles."
+keywords:
+  - "VANTS"
+  - "vantsgames"
+  - "Cloudflare"
+  - "D1"
+  - "torneos"
+---
+
+[`vantsgames`](https://github.com/vantsgames/vantsgames) reúne el Worker de la plataforma, archivos web estáticos, lógica de torneos y logros, un bot Python y funciones e integraciones del ecosistema.
+
+<Note>
+  Esta guía describe el código del commit `96dbfcb`, no certifica qué componentes están desplegados. El README menciona carpetas que no están en este árbol, como `desktop-electron/` y `webapp/`; consulta [vantshublauche](/repos/vantshublauche) para esos componentes.
+</Note>
+
+## Estructura
+
+| Ruta | Contenido |
+| --- | --- |
+| `vants-server/worker.js` | Enrutamiento HTTP e integraciones del Worker |
+| `vants-server/public/` | HTML y recursos estáticos servidos por el binding `ASSETS` |
+| `vants-server/plataforma-core.js` | Lógica de la plataforma separada del manejador HTTP |
+| `vants-server/logros-core.js` y `logros-motor.js` | Motor de logros e insignias |
+| `vants-server/agentid-core.js` | Integración de sesión para agentes |
+| `bot/` | Bot en Python |
+| `neon-functions/` y `vants-functions/` | Código de funciones del ecosistema |
+| `db/migrations/` | Migraciones SQL |
+| `scripts/` y `tests/e2e/` | Pruebas, sincronizaciones y auditoría de enlaces |
+
+## Arrancar el Worker localmente
+
+Necesitas Git, npm y una versión de Node.js compatible con la versión de Wrangler declarada en `vants-server/package.json`. Este manifiesto fija `wrangler` en `4.155.0`, pero no declara un mínimo de Node.js.
+
+```bash
+git clone https://github.com/vantsgames/vantsgames.git
+cd vantsgames/vants-server
+npm install
+npm run dev -- --port 8787
+```
+
+En otra terminal, consulta la ruta de salud local:
+
+```bash
+curl http://127.0.0.1:8787/healthz
+```
+
+El manejador define esta respuesta:
+
+```json
+{"ok":true,"version":"S4","web":"VANTS GAMES"}
+```
+
+Esta respuesta confirma el manejador HTTP, no la disponibilidad de todas las bases de datos o integraciones.
+
+<Warning>
+  El código contiene direcciones externas y puede consultar servicios reales aunque el Worker se ejecute localmente. Para la primera comprobación usa solo `/healthz`, sin credenciales de producción. No ejecutes `npm run deploy` como parte del arranque local.
+</Warning>
+
+## Configuración y persistencia
+
+`vants-server/wrangler.toml` configura:
+
+| Binding o variable | Función |
+| --- | --- |
+| `ASSETS` | Sirve `./public`; las solicitudes pasan primero por el Worker |
+| `DB` | Base D1 de la plataforma, denominada `vants-db` |
+| `ACH_DB` | Base D1 independiente para logros, denominada `vants-logros-db` |
+| `VANTS_BOT_URL` | Destino del puente con el bot |
+| `VANTS_BUS_URL` | Destino del bus de eventos |
+| `AGENTID_CLIENT_ID` y `AGENTID_SOLO_VERIFICADOS` | Configuración de AgentID |
+
+El cron declarado es `* * * * *` y procesa el outbox del motor de logros. La configuración documenta que, sin `ACH_DB`, el motor responde `503 logros_no_config` y el trabajo programado de logros no se ejecuta.
+
+Entre los secretos consultados por el código están `VANTS_BUS_SECRET`, `GH_CLIPS_TOKEN`, `AUTH0_MGMT_CLIENT_ID`, `AUTH0_MGMT_CLIENT_SECRET`, `AGENTID_CLIENT_SECRET` y `VANTS_SESION_SEC`. `SENTRY_DSN` habilita el envío de errores a Sentry. Configura únicamente las integraciones que necesites; no copies identificadores de infraestructura de otra cuenta.
+
+<Warning>
+  No apliques las migraciones PostgreSQL de `db/migrations/` directamente a D1 sin revisar el dialecto y el componente al que pertenecen. El repositorio conserva código de Neon y configuración D1: no son esquemas intercambiables por su nombre.
+</Warning>
+
+## Interfaces principales
+
+| Área | Rutas representativas |
+| --- | --- |
+| Salud | `GET /healthz`, `GET /api/health` |
+| Catálogo y competición | `GET /api/games`, `/api/tournaments`, `/api/matches` |
+| Equipos y jugadores | `GET /api/teams`, `/api/players` |
+| Contenido | `GET /api/articles`, `/api/search` |
+| Clips destacados | `GET`, `POST` y `DELETE /api/clips/featured` |
+| Cuenta | `/api/account/perfil`, `/api/account/progreso` |
+| Logros | `/api/badges`, `/api/me/badges`, `/api/admin/achievements/*` |
+| Telemetría | `POST /api/telemetria` |
+
+Las rutas de cuenta, administración y escritura tienen requisitos distintos de sesión y permisos. La presencia de una ruta en la configuración CORS no significa que sea pública. El Worker aplica filtros de solicitudes y límites por IP; revisa el manejador concreto al integrar un cliente.
+
+El módulo de clips utiliza GitHub Releases y un manifest. En este commit, `GH_CLIPS_REPO` apunta a `VANTSNET/vants-clips`, no a `vantsgames/vants-clips`; revisa ese destino antes de habilitar escrituras.
+
+## Pruebas disponibles
+
+Desde la raíz del repositorio:
+
+```bash
+npm install
+npm test
+node scripts/test_mm_fase4.js
+node scripts/test_mm_neon.js
+node scripts/test_vantsbot.js
+npm run audit:enlaces
+```
+
+`npm run test:e2e` ejecuta Playwright y requiere preparar los navegadores y el destino indicado en `playwright.config.js`. Los scripts de sincronización FACEIT son operaciones distintas de las pruebas; no los uses como comprobación inicial.
+
+## Fuentes y siguientes pasos
+
+Fuentes: `package.json`, `vants-server/package.json`, `vants-server/wrangler.toml`, `vants-server/worker.js` y los directorios de pruebas del commit `96dbfcb`. No se ejecutaron servicios ni pruebas.
+
+- [Bot de Discord en Cloudflare](/repos/vantsbot-cf)
+- [Agentes y soporte](/repos/flask-agents)
+- [Índice de clips](/repos/vants-clips)
