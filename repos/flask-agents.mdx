@@ -1,32 +1,69 @@
 ---
-title: "flask-agents: soporte y servicio de agentes"
+title: "flask-agents: soporte, servicio de agentes y bus de eventos"
 sidebarTitle: "flask-agents"
-description: "Ejecuta la web Flask y conoce la API del servicio de agentes, sus modos de memoria, autenticación, variables e integración con VANTS-BUS."
+description: "Web Flask de soporte, servicio Node.js de vigilancia (Fastify), consumidor VANTS-BUS, sandbox, memoria y CLI. Guia completa para agentes de IA."
 keywords:
   - "Flask"
   - "agentes"
   - "Fastify"
   - "VANTS-BUS"
   - "soporte"
+  - "sandbox"
+  - "chequeos"
+  - "Neon"
+  - "CLI"
 ---
 
-[`flask-agents`](https://github.com/vantsgames/flask-agents) contiene dos aplicaciones independientes: una web Flask de soporte y un servicio Node.js de vigilancia y acciones. También incluye un consumidor Python del bus de eventos.
+[`flask-agents`](https://github.com/vantsgames/flask-agents) contiene tres aplicaciones independientes: una web Flask de soporte, un servicio Node.js de vigilancia y acciones, y un consumidor Python del bus de eventos. Esta guia describe cada componente, sus contratos de entrada/salida, variables de entorno, limites y relaciones verificadas con otros repos del ecosistema.
 
-## Componentes
+Revision: 1 de noviembre de 2026. Commit: `3282d92` (HEAD actual, identico a la revision previa).
+
+## Mapa de archivos y directorios de trabajo
 
 | Ruta | Responsabilidad |
 | --- | --- |
-| `main.py` | Aplicación Flask y arranque opcional del consumidor |
-| `endpoints/` | Páginas web y API de soporte |
-| `soporte/` | Respuestas mediante reglas o un proveedor LLM |
-| `services/agent-service/` | API Fastify, CLI, memoria y herramientas del agente |
-| `vants_bus/` | Cliente y consumidor Python de VANTS-BUS |
-| `db/migrations/` | Esquemas SQL del agente |
-| `scripts/` | Pruebas del agente, sandbox y capa LLM |
+| `main.py` | Aplicacion Flask, arranque opcional del consumidor VANTS-BUS |
+| `api/index.py` | Entrada WSGI para el runtime Python de Vercel |
+| `endpoints/web.py` | Paginas web: `/`, `/agente/<id>`, `/soporte`, `/estado`, `/creador` |
+| `endpoints/api.py` | API de soporte: `/healthz`, `/api/agentes`, `/api/ia`, `/api/chat`, `/vants/bus` |
+| `agentes/squad.py` | Fuente unica de `/api/agentes` (squad de 4 agentes) |
+| `soporte/ia.py` | Capa IA del chat: GLM (OpenAI-compatible) o modo reglas |
+| `soporte/reglas.py` | NLU local en espanol, 0 dependencias |
+| `services/agent-service/server.js` | Servidor Fastify del agente, puerto 8082 |
+| `services/agent-service/cli.js` | CLI del agente: `ciclo`, `estado`, `informe`, `ia`, `comando` |
+| `services/agent-service/nucleo.js` | Orquesta ciclo completo: chequeos, cerebro, acciones, comandos |
+| `services/agent-service/chequeos.js` | 7 chequeos de vigilancia (web, worker FACEIT, launcher, workflows, Neon, matchmaking, Vercel) |
+| `services/agent-service/cerebro.js` | Reglas de decision, NLU en espanol, informes |
+| `services/agent-service/acciones.js` | Acciones automaticas seguras con guarda anti-bucle |
+| `services/agent-service/memoria.js` | Memoria RAM o PostgreSQL (Neon): runs, incidentes, comandos, recuerdos, archivos, sandbox |
+| `services/agent-service/llm.js` | Cliente GLM (OpenAI-compatible) con function calling |
+| `services/agent-service/herramientas.js` | Catalogo de 15 herramientas para el modo agéntico |
+| `services/agent-service/sandbox.js` | Ejecucion aislada y auditada de comandos |
+| `vants_bus/consumer.py` | Consumidor Python del bus de eventos (hilo daemon o proceso independiente) |
+| `vants_bus/vants_bus_client.py` | Cliente Python del bus (solo stdlib) |
+| `bot-agente/agent_bridge.py` | Puente Discord: DMs de incidentes y respuestas desde Neon |
+| `bot-agente/commands/agente.py` | Comandos `/agente` de Discord (estado, informe, incidentes, resolver, comando) |
+| `db/migrations/25-agente.sql` | Esquema base: `agent_runs`, `agent_events`, `agent_comandos`, `agent_resumen` |
+| `db/migrations/26-agent_sandbox.sql` | Esquema sandbox: `agent_memoria`, `agent_archivos`, `agent_sandbox_execs` |
+| `scripts/test_agente.js` | Tests del nucleo (61 asserts) |
+| `scripts/test_sandbox_agente.js` | Tests de sandbox y memoria (60 asserts) |
+| `scripts/test_llm_agente.js` | Tests del modo agéntico LLM (28 asserts) |
+| `.github/workflows/agente.yml` | Workflow CI: ciclo cada 30 min, acciones, resumen a GitHub/Discord |
+| `.github/workflows/tests-agente.yml` | CI de tests en PRs que toquen `services/agent-service/**` |
+| `.github/workflows/monitor.yml` | Monitor externo simple cada 30 min |
 
-## Iniciar la web Flask
+## Requisitos comprobados
 
-`pyproject.toml` declara Python 3.9 o superior. Usa un entorno virtual; los siguientes comandos son para una terminal POSIX:
+| Componente | Requisito | Fuente |
+| --- | --- | --- |
+| Web Flask | Python >= 3.9, `flask>=3.1,<4.0`, `gunicorn~=23.0.0` | `pyproject.toml`, `requirements.txt` |
+| Servicio agente | Node >= 18, `fastify@5.2.1`, `express@4.21.2`, `pg@8.13.1` | `services/agent-service/package.json` |
+| Base de datos | PostgreSQL (Neon) para persistencia; sin `DATABASE_URL` usa RAM | `memoria.js` |
+| LLM | Cualquier API OpenAI-compatible con `/chat/completions` y `tools` | `llm.js` |
+
+## Web Flask (soporte)
+
+### Arranque local
 
 ```bash
 git clone https://github.com/vantsgames/flask-agents.git
@@ -37,110 +74,366 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-La entrada configura el puerto 8000. En otra terminal:
+La app escucha en `0.0.0.0:8000` con `debug=True`. Solo para desarrollo protegido.
 
-```bash
-curl http://127.0.0.1:8000/healthz
-```
+### Endpoints de la web
 
-El código define esta respuesta:
+| Metodo y ruta | Funcion | Cuerpo de entrada | Respuesta (exito) | Errores conocidos |
+| --- | --- | --- | --- | --- |
+| `GET /healthz` | Estado del proceso Flask | - | `{"ok": true, "servicio": "web-agentes-vants"}` | - |
+| `GET /api/agentes` | Catalogo del squad | - | `{"ok": true, "agentes": [...], "total": 4}` | - |
+| `GET /api/ia` | Estado de la capa IA | - | `{"ok": true, "activo": bool, "modelo": "...", "proveedor": "...", "fallback": "modo reglas (NLU local en espanol)"}` | - |
+| `POST /api/chat` | Respuesta de soporte | `{"mensaje": string, "historial": [{"rol": "user", "texto": "..."}]}` | `{"ok": true, "modo": "llm" or "reglas", "modelo": "..." or null, "respuesta": string}` | 400 si `mensaje` vacio o > 2000 caracteres; historial recortado a 10 turnos |
+| `GET /vants/bus` | Estado del consumidor del bus | - | `{"ok": true, "activo": bool, "consumidor": {...}}` | - |
 
-```json
-{"ok":true,"servicio":"web-agentes-vants"}
-```
+### Chat de soporte: dos modos
 
-<Warning>
-  `main.py` inicia Flask con `debug=True` y escucha en `0.0.0.0`. Úsalo solo en un entorno de desarrollo protegido, no expuesto a internet. Si el entorno ya contiene `VANTS_BUS_URL` y `VANTS_BUS_SECRET`, también puede activarse el consumidor de eventos.
-</Warning>
+- **Modo LLM**: activo solo con `AGENT_LLM_KEY`. Usa `AGENT_LLM_URL` (por defecto `https://api.z.ai/api/paas/v4`) y `AGENT_LLM_MODEL` (por defecto `glm-4.5-flash`). Temperatura 0.6, max_tokens 700, timeout 25 s. El prompt de sistema define la identidad "Vants Soporte" en espanol.
+- **Modo reglas**: NLU local en `soporte/reglas.py`. 0 dependencias, siempre disponible. Responde sobre el squad, estado, despliegue, ORION, GLM y saludos. No inventa datos.
 
-### API de soporte
+Si el proveedor LLM falla, el chat cae automaticamente al modo reglas sin devolver 500.
 
-| Método y ruta | Función |
-| --- | --- |
-| `GET /healthz` | Estado del proceso Flask |
-| `GET /api/agentes` | Catálogo de agentes |
-| `GET /api/ia` | Configuración funcional de la capa IA |
-| `POST /api/chat` | Respuesta de soporte |
-| `GET /vants/bus` | Estado del consumidor del bus |
+### Consumidor VANTS-BUS (integrado en Flask)
 
-El chat recibe `mensaje` y un `historial` opcional. Conserva los últimos diez elementos del historial y rechaza mensajes vacíos o de más de 2000 caracteres.
+`main.py` intenta importar `vants_bus.consumer.iniciar` dentro de un `try/except`. Solo arranca si existen `VANTS_BUS_URL` y `VANTS_BUS_SECRET`. En Vercel (serverless) no arranca salvo `force=True`. El endpoint `/vants/bus` expone `_VANTS_BUS_ACTIVO` y `_VANTS_BUS_ESTADO`.
 
-```bash
-curl http://127.0.0.1:8000/api/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"mensaje":"¿Qué puede hacer el soporte?","historial":[]}'
-```
+## Servicio de agentes (Node.js, Fastify)
 
-La respuesta incluye `ok`, `modo`, `modelo` y `respuesta`. Sin clave del proveedor se usa el modo reglas. Con `AGENT_LLM_KEY`, la petición puede consumir una API externa.
-
-## Iniciar el servicio Node.js
-
-Desde la raíz del clon, en otra terminal:
+### Arranque local
 
 ```bash
 cd services/agent-service
 npm install
-npm start
+npm start   # ejecuta node server.js
 ```
 
-`npm start` ejecuta `node server.js`. El manifiesto declara `node >=18`, pero debes comprobar también los requisitos de las dependencias instaladas, incluida Fastify 5. No tomes ese mínimo como una garantía de compatibilidad de todo el conjunto.
+El puerto por defecto es 8082 (`PORT`). Escucha en `0.0.0.0`.
+
+### Endpoints del servicio
+
+| Metodo y ruta | Auth | Operacion | Cuerpo de entrada | Respuesta (exito) | Errores conocidos |
+| --- | --- | --- | --- | --- | --- |
+| `GET /healthz` | Publico | Estado del servicio | - | `{"ok": true, "service": "agent-service", "version": "1.0.0", "uptime": N, "memoria": "pg" or "memoria", "cerebro": "reglas+llm" or "reglas", "sandbox": "activa"}` | - |
+| `GET /api/v1/estado` | Bearer si `AGENT_TOKEN` | Ultimo run + incidentes abiertos | - | `{"ok": true, "ultimo": {...}, "incidentes": [...], "cerebro": "..."}` | 401 si token incorrecto |
+| `POST /api/v1/ciclo` | Bearer si `AGENT_TOKEN` | Ejecuta vigilancia completa | - | `{"ok": true, "run_id": N, "estado": "UP" or "DEGRADED" or "DOWN", "resumen": "...", "hallazgos": [...], "acciones": [...], "ia": {...}}` | 401; puede hacer peticiones externas |
+| `POST /api/v1/comando` | Bearer si `AGENT_TOKEN` | Procesa orden en lenguaje natural | `{"texto": string, "creado_por": string}` | `{"ok": true, "intencion": "...", "via": "llm-herramientas" or "llm" or "reglas", "respuesta": string}` | 400 si falta `texto`; 401 |
+| `GET /api/v1/incidentes` | Bearer si `AGENT_TOKEN` | Lista incidentes abiertos | - | `{"ok": true, "incidentes": [...]}` | 401 |
+| `POST /api/v1/incidentes/:id/resolver` | Bearer si `AGENT_TOKEN` | Cierra incidente | `{"resolucion": string}` | `{"ok": true, "resuelto": N}` | 404 si no existe o ya cerrado; 401 |
+| `GET /api/v1/memoria` | Bearer si `AGENT_TOKEN` | Busca recuerdos | `?q=texto` | `{"ok": true, "recuerdos": [...]}` | 401 |
+| `POST /api/v1/memoria` | Bearer si `AGENT_TOKEN` | Guarda recuerdo | `{"clave": string, "valor": string, "tipo": string, "importancia": number}` | `{"ok": true, "id": N}` | 400 si falta `clave` o `valor`; 401 |
+| `GET /api/v1/archivos` | Bearer si `AGENT_TOKEN` | Lista archivos de sandbox | `?prefijo=ruta` | `{"ok": true, "archivos": [...]}` | 401 |
+
+### Auth Bearer
+
+Si `AGENT_TOKEN` esta definido, todas las rutas `/api/v1/*` exigen `Authorization: Bearer <token>`. La comparacion es timing-safe (caracter por caracter, sin cortocircuito). Sin `AGENT_TOKEN` las rutas quedan abiertas y el servidor emite un aviso en consola al arrancar.
+
+### Ciclo de vigilancia (nucleo.js)
+
+1. Abre run en memoria (`agent_runs`).
+2. Ejecuta los 7 chequeos en paralelo.
+3. El cerebro evalua resultados: `UP`, `DEGRADED`, `DOWN` o `DESCONOCIDO`.
+4. Inserta incidentes con `dedupe_key` (evita duplicados; reabre si estaba resuelto).
+5. Ejecuta acciones automaticas seguras (guarda anti-bucle en `agent_events`).
+6. Procesa comandos pendientes de `agent_comandos`.
+7. Cierra run con resumen, hallazgos, acciones y estado de la capa IA.
+
+### Chequeos (chequeos.js)
+
+| ID | Que vigila | Severidad si fallo | Accion automatica sugerida |
+| --- | --- | --- | --- |
+| `web` | Worker `vants.vants.workers.dev` (HTTP 200 + contenido VANTS) | critical | `redispatch_cloudflare` |
+| `worker_faceit` | `/healthz` del webhook FACEIT | error | - |
+| `launcher` | Ultima release GitHub: `.exe`, `latest.yml`, coherencia de version | error | `revisar_release` |
+| `workflows` | Ultimos runs de 5 workflows (cloudflare-deploy, neon-migrate, desktop-electron, faceit-xp, tests) | warn | `redispatch_cloudflare`, `redispatch_neon_migrate`, `rerun_fallidos` |
+| `neon` | Colas pendientes en `web_events`, `faceit_webhook_events`, `mm_tickets`, incidentes abiertos | error | - |
+| `matchmaking` | `/healthz` del servicio de matchmaking (opcional) | warn | - |
+| `vercel_deploy` | Ultimo deploy de `main` en Vercel (`READY` ok, `ERROR` or `CANCELED` fallo) | error | `redeploy_vercel` |
+
+Timeout de cada chequeo: 15 s. Clasificacion de workflows por ruta del archivo YAML, no solo por nombre.
+
+### Acciones automaticas (acciones.js)
+
+| Accion | Condicion | Guarda anti-bucle | Efecto secundario |
+| --- | --- | --- | --- |
+| `redispatch_cloudflare` | Web caida o workflow `cloudflare-deploy` fallido | 1 vez por SHA | `POST /repos/{repo}/actions/workflows/cloudflare-deploy.yml/dispatches` |
+| `redispatch_neon_migrate` | Workflow `neon-migrate` fallido | 1 vez por SHA | `POST /repos/{repo}/actions/workflows/neon-migrate.yml/dispatches` |
+| `rerun_fallidos` | Otro workflow fallido | 1 vez por runId | `POST /repos/{repo}/actions/runs/{runId}/rerun` |
+| `redeploy_vercel` | Deploy Vercel en `ERROR` or `CANCELED` | Maximo 2 intentos por SHA | `POST /v13/deployments?teamId=...` con `deploymentId` = uid fallido |
+
+Sin `GITHUB_TOKEN` o `VERCEL_TOKEN` las acciones quedan propuestas (no ejecutadas). Sin memoria disponible (Neon caida) la accion NO se ejecuta (fail-safe anti-bucle).
+
+### Memoria (memoria.js)
+
+Dos implementaciones con la misma interfaz:
+
+- **RAM**: `crearMemoriaMemoria()`. Usada en tests y modo degradado. No persiste entre reinicios.
+- **PostgreSQL**: `crearMemoriaPg(pg)`. Requiere `DATABASE_URL` con prefijo `postgres://` o `postgresql://`. SSL habilitado salvo que la URL contenga `sslmode=disable`.
+
+Tablas y funciones (migraciones 25 y 26):
+
+| Entidad | Tabla/Vista | Campos clave |
+| --- | --- | --- |
+| Runs | `agent_runs` | `id`, `fuente`, `modo`, `estado_global`, `hallazgos` (jsonb), `acciones` (jsonb), `resumen`, `error`, `started_at`, `finished_at` |
+| Incidentes | `agent_events` | `id`, `dedupe_key` (UNIQUE), `kind`, `severity`, `titulo`, `detalle` (jsonb), `accion_sugerida`, `estado`, `notificado`, `resolucion`, `created_at`, `updated_at`, `resolved_at` |
+| Comandos | `agent_comandos` | `id`, `texto`, `creado_por`, `estado` (pendiente/hecho/error), `respuesta`, `entregado`, `created_at`, `respondido_at` |
+| Resumen | `agent_resumen` (vista) | `incidentes_abiertos`, `incidentes_graves`, `comandos_pendientes`, `web_events_pendientes`, `ultimo_estado`, `ultimo_run_en`, `ultimo_resumen` |
+| Recuerdos | `agent_memoria` | `id`, `clave` (UNIQUE), `valor`, `tipo`, `importancia` (1-5), `expira_en`, `creado_por`, `created_at`, `updated_at` |
+| Archivos | `agent_archivos` | `id`, `ruta` (UNIQUE), `contenido`, `bytes`, `sha256`, `run_id`, `created_at`, `updated_at` |
+| Ejecuciones sandbox | `agent_sandbox_execs` | `id`, `comando`, `exit_code`, `stdout`, `stderr`, `duracion_ms`, `run_id`, `created_at` |
+
+Funciones PostgreSQL: `agent_reabrir_evento(dedupe_key, titulo, kind, severity, detalle, accion_sugerida)`, `agent_recordar(clave, valor, tipo, importancia, expira_en, creado_por)`, `agent_podar_sandbox()` (borra ejecuciones de mas de 7 dias).
+
+### Sandbox (sandbox.js)
+
+Ejecuta comandos en el entorno donde ya corre (runner de GitHub Actions o maquina local). No es un sandbox aislado a nivel de sistema operativo; es una capa de validacion y auditoria.
+
+Reglas de seguridad:
+
+1. **Allowlist** por segmento de pipeline: `node`, `npm`, `npx`, `python3`, `pip3`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `find`, `echo`, `date`, `uname`, `df`, `du`, `ps`, `sleep`, `sort`, `uniq`, `cut`, `awk`, `sed -n`, `jq`.
+2. **Denylist**: `rm -rf`, `sudo`, `ssh`, `scp`, `killall`, `shutdown`, `reboot`, `mkfs`, `dd`, `chmod 777`, `chown`, `curl -X POST/PUT/DELETE/PATCH`, `wget`, `gh secret/auth`, `git push`, `git reset --hard`, `npm publish`, `eval`.
+3. Prohibidos: backticks, `$(...)`, `;`, `&&`, `&`, redirecciones `>`, `<`, saltos de linea.
+4. Prohibido cualquier string que parezca un secreto (`ghp_`, `github_pat_`, `sk-`, `xoxb-`, `AKIA...`, `-----BEGIN`).
+5. Timeout: 10 s por defecto, maximo 30 s. Salida recortada a 32 KB.
+6. Todo auditado en `agent_sandbox_execs`.
+
+Resultado de `sandbox.ejecutar(comando)`:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `permitido` | boolean | `false` si la validacion rechazo el comando |
+| `exitCode` | number or null | Codigo de salida del proceso (124 si timeout) |
+| `duracionMs` | number or null | Duracion real en milisegundos |
+| `timeout` | boolean | `true` si se mato por timeout |
+| `texto` | string | Resumen legible con exit, duracion, salida, errores |
+
+### Modo agéntico con LLM (llm.js)
+
+Si `AGENT_LLM_KEY` esta presente, el agente funciona en modo agéntico: el modelo elige y encadena herramientas reales hasta responder. Maximo 5 pasos (`MAX_PASOS`). Si la API falla o no hay key, el nucleo cae al modo reglas (NLU local).
+
+Herramientas expuestas al modelo (15 total):
+
+| Herramienta | Intencion/Directa | Descripcion |
+| --- | --- | --- |
+| `estado` | Intencion | Ultimo ciclo e incidentes abiertos |
+| `informe` | Intencion | Diagnostico completo en vivo |
+| `incidentes` | Intencion | Lista incidentes abiertos |
+| `resolver` | Intencion | Marca incidente como resuelto (requiere `id`) |
+| `ciclo` | Intencion | Ejecuta ciclo de vigilancia ahora |
+| `desplegar_web` | Intencion | Re-lanza deploy de Cloudflare |
+| `migrar` | Intencion | Re-lanza migraciones Neon |
+| `ayuda` | Intencion | Muestra comandos disponibles |
+| `memoria_guardar` | Directa | Guarda recuerdo en `agent_memoria` |
+| `memoria_buscar` | Directa | Busca en `agent_memoria` |
+| `memoria_olvidar` | Directa | Borra recuerdo por clave |
+| `archivo_guardar` | Directa | Guarda fichero en `agent_archivos` (max 256 KB) |
+| `archivo_leer` | Directa | Lee fichero por ruta |
+| `archivo_listar` | Directa | Lista ficheros por prefijo |
+| `sandbox_exec` | Directa | Ejecuta comando en sandbox |
+
+Prompts del sistema: `SISTEMA` (modo clasico, JSON fijo) y `SISTEMA_AGENTE` (modo agéntico, espanol, directo, maximo 8 lineas, marca `[!]` lo critico, no inventa URLs ni numeros de incidente).
+
+### CLI (cli.js)
+
+Comandos disponibles desde `services/agent-service/`:
 
 ```bash
-curl http://127.0.0.1:8082/healthz
+node cli.js ciclo              # vigilancia completa (salida JSON)
+node cli.js estado             # ultimo estado + incidentes (texto)
+node cli.js informe            # diagnostico completo legible (texto)
+node cli.js ia                 # diagnostico de la capa IA (JSON: activa, modelo, url, ok, motivo)
+node cli.js comando "texto"    # orden en lenguaje natural (texto)
 ```
 
-La respuesta contiene `ok`, `service`, `version`, `uptime`, `memoria`, `cerebro` y `sandbox`. Su contenido depende del entorno y no prueba que los chequeos externos hayan pasado.
+Memoria: Neon si `DATABASE_URL` es valida; RAM en caso contrario.
 
-<Warning>
-  El servicio escucha en `0.0.0.0`. Sin `AGENT_TOKEN`, las rutas `/api/v1/*` quedan abiertas. Configura un token y restringe el acceso de red antes de habilitar credenciales, herramientas o acceso compartido. Los límites de comandos del módulo sandbox no sustituyen el aislamiento del proceso.
-</Warning>
+## Consumidor VANTS-BUS (Python)
 
-### API del agente
+### Dos modos de uso
 
-`GET /healthz` es público. Si defines `AGENT_TOKEN`, las rutas siguientes exigen `Authorization: Bearer <token>`:
+1. **Integrado con Flask** (VPS/local): `main.py` arranca un hilo daemon si hay `VANTS_BUS_URL` y `VANTS_BUS_SECRET`.
+2. **Proceso independiente** (recomendado; Vercel mata hilos de fondo):
 
-| Método y ruta | Operación |
+```bash
+VANTS_BUS_URL=https://vants-bus.vants.workers.dev \
+VANTS_BUS_SECRET=<secreto> python vants_bus/consumer.py
+```
+
+### Eventos consumidos
+
+| Tipo | Reaccion por defecto |
 | --- | --- |
-| `GET /api/v1/estado` | Último ciclo e incidentes abiertos |
-| `GET /api/v1/incidentes` | Lista de incidentes |
-| `GET /api/v1/memoria` | Recuerdos, con búsqueda opcional `q` |
-| `GET /api/v1/archivos` | Archivos registrados, con filtro `prefijo` |
-| `POST /api/v1/ciclo` | Ejecuta vigilancia |
-| `POST /api/v1/comando` | Procesa una orden en el campo `texto` |
-| `POST /api/v1/incidentes/:id/resolver` | Resuelve un incidente |
-| `POST /api/v1/memoria` | Guarda `clave` y `valor` |
+| `match.finished` | Publica `post.generated` con resumen del partido |
+| `tournament.inscriptions_opened` | Publica `post.generated` anunciando torneo |
+| `clip.highlights_ready` | Log informativo |
+| `clip.published` | Log informativo |
+| `alert.detected` | Log con nivel de alerta |
+| `match.scheduled`, `match.canceled`, `inscription.created`, `game.session_started` | Log informativo |
 
-Los ciclos y comandos pueden hacer peticiones externas y acciones con las credenciales disponibles. No los uses como simple comprobación de arranque.
+### Cursor persistente
+
+El cursor se guarda en `vants_bus/.vants-cursor.json` tras cada lote. En la primera ejecucion sin historial, empieza "desde ahora" con un ULID-like generado a partir del timestamp actual. Esto evita reproducir todo el historial del bus.
+
+### Cliente del bus (vants_bus_client.py)
+
+Solo biblioteca estandar: `hmac`, `hashlib`, `json`, `urllib`. Sin dependencias.
+
+Firma: `X-VANTS-Signature = hex(hmac_sha256(SECRET, f"{ts}.{body}"))`. En GET el body es `b""` y se firma `f"{ts}."`.
+
+Metodos:
+
+| Metodo | Descripcion |
+| --- | --- |
+| `publish(type_, data)` | Publica un evento individual |
+| `publish_batch(events)` | Publica lote de eventos |
+| `fetch_events(since, types, sources, limit, wait)` | Consume eventos con cursor |
+| `poll_forever(handler, types, sources, interval, since, on_error, wait_seconds)` | Bucle de consumo con backoff exponencial |
 
 ## Variables de entorno
 
-| Variable | Uso |
+### Web Flask (`.env.example` en raiz)
+
+| Variable | Uso | Requerida |
+| --- | --- | --- |
+| `AGENT_LLM_KEY` | Key del proveedor LLM para chat de soporte | No (causa a modo reglas) |
+| `AGENT_LLM_URL` | Endpoint del proveedor (por defecto `https://api.z.ai/api/paas/v4`) | No |
+| `AGENT_LLM_MODEL` | Modelo (por defecto `glm-4.5-flash`) | No |
+| `AGENT_URL` | URL del servicio de agentes para consultas desde la web | No |
+| `AGENT_TOKEN` | Token Bearer para autenticar contra el servicio de agentes | No |
+| `VANTS_BUS_URL` | URL del bus de eventos | No (sin ella el consumidor no arranca) |
+| `VANTS_BUS_SECRET` | Secreto HMAC para el bus | No |
+| `VANTS_BUS_CURSOR` | Ruta del archivo de cursor (por defecto `.vants-cursor.json`) | No |
+
+### Servicio de agentes (`services/agent-service/.env.example`)
+
+| Variable | Uso | Default | Requerida |
+| --- | --- | --- | --- |
+| `PORT` | Puerto del servicio | 8082 | No |
+| `AGENT_TOKEN` | Proteccion Bearer de `/api/v1/*` | - | Recomendada en produccion |
+| `DATABASE_URL` | Conexion PostgreSQL (Neon) | - | No (usa RAM) |
+| `URLS_WEB` | URL del worker principal | `https://vants.vants.workers.dev` | No |
+| `URLS_WORKER_FACEIT` | URL del webhook FACEIT | `https://vants-faceit-webhook.vants.workers.dev` | No |
+| `URLS_MATCHMAKING` | URL del servicio de matchmaking | - | No |
+| `GITHUB_TOKEN` | PAT para acciones GitHub | - | No (acciones propuestas) |
+| `GITHUB_REPOSITORY` | Repo objetivo de las acciones | `feispla/vants` | No |
+| `VERCEL_TOKEN` | Token de Vercel | - | No (chequeo omitido) |
+| `VERCEL_TEAM_ID` | ID del equipo Vercel | `team_aVpm4mk3HtCuZPnzf7uSeSao` | No |
+| `VERCEL_PROJECT_ID` | ID del proyecto Vercel | `prj_vxL6Wd8RgsiMF6Eg8AnMGiTriITn` | No |
+| `VERCEL_PROJECT_NAME` | Nombre del proyecto Vercel | `vants` | No |
+| `AGENT_LLM_URL` | Endpoint LLM | `https://api.z.ai/api/paas/v4` | No |
+| `AGENT_LLM_KEY` | Key LLM para modo agéntico | - | No (modo reglas) |
+| `AGENT_LLM_MODEL` | Modelo LLM | `glm-4.5-flash` | No |
+| `ALLOW_ORIGIN` | CORS allow-origin | `https://vants.vants.workers.dev` | No |
+| `LOG_LEVEL` | Nivel de log del servidor | `silent` | No |
+
+## CI/CD y workflows
+
+### `.github/workflows/agente.yml`
+
+- Trigger: cron cada 30 min, `repository_dispatch` (tipo `vercel_deploy`), `workflow_dispatch` (modo `ciclo` or `informe` or `comando`).
+- Concurrency: `group: agente`, `cancel-in-progress: false` (un agente a la vez).
+- Resuelve `DATABASE_URL` con `NEON_API_KEY` via CLI de Neon.
+- Ejecuta `node cli.js ciclo` or `informe` or `comando`.
+- Publica resumen en GitHub Summary y opcionalmente en Discord via webhook.
+- Dispara Neon Function `vantsbot` para entregar DMs del puente.
+
+Secrets necesarios en el cuartel:
+
+| Secret | Para que |
 | --- | --- |
-| `PORT` | Puerto del agente, 8082 por defecto |
-| `AGENT_TOKEN` | Protección de la API del agente |
-| `DATABASE_URL` | Persistencia PostgreSQL; sin ella usa memoria RAM |
-| `AGENT_LLM_KEY`, `AGENT_LLM_URL`, `AGENT_LLM_MODEL` | Proveedor y modelo LLM |
-| `AGENT_URL` | Destino del agente consultado por la web de soporte |
-| `URLS_WEB`, `URLS_WORKER_FACEIT`, `URLS_MATCHMAKING` | Destinos de vigilancia |
-| `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `VERCEL_TOKEN` | Integraciones de diagnóstico y acciones |
-| `VANTS_BUS_URL`, `VANTS_BUS_SECRET` | Activación y autenticación del consumidor Python |
+| `NEON_API_KEY` | Obligatorio. Resuelve `DATABASE_URL` |
+| `AGENT_LLM_KEY` | Cerebro GLM (opcional) |
+| `AGENT_LLM_URL` | Endpoint GLM (opcional, default global) |
+| `AGENT_LLM_MODEL` | Modelo GLM (opcional) |
+| `VERCEL_TOKEN` | Chequeo y redeploy Vercel (opcional) |
+| `VANTS_BOT_SECRET` | Disparar DMs del puente (opcional) |
+| `VANTS_DISCORD_WEBHOOK` | Resumen a canal Discord (opcional) |
+| `AGENT_GH_TOKEN` | PAT con `actions:write` para re-dispatch (opcional) |
+| `AGENT_REPO_PLATAFORMA` | Repo objetivo (default `VANTSNET/Vantsgames`) |
 
-Consulta los dos archivos `.env.example`, en la raíz y en `services/agent-service/`. Son referencias: los comandos anteriores leen el entorno del proceso y no cargan automáticamente esos archivos de ejemplo.
+### `.github/workflows/tests-agente.yml`
 
-## Bus y pruebas
+Se ejecuta en PRs que toquen `services/agent-service/**`, `scripts/test_*.js` o el propio workflow. Corre 3 suites: nucleo (61 asserts), sandbox (60 asserts), LLM (28 asserts). Sin secrets: memoria RAM, fetch inyectado.
 
-El consumidor integrado se activa solo con la configuración del bus y se deshabilita en el entorno Vercel según su implementación. El cursor permite continuar desde una posición guardada; no implica una garantía general de entrega exactamente una vez.
+### `.github/workflows/monitor.yml`
 
-Ejecuta las pruebas disponibles desde la raíz del repositorio:
+Monitor externo simple que consulta `https://vants-agent.vants.workers.dev/`. Si falla, abre o actualiza un issue GitHub con label `monitor-caida`. Si pasa, cierra issues abiertos.
 
-```bash
-node scripts/test_agente.js
-node scripts/test_sandbox_agente.js
-node scripts/test_llm_agente.js
-```
+## Relaciones con otros repos (verificadas)
+
+| Repo | Relacion | Como se comunica |
+| --- | --- | --- |
+| `vantsbot-cf` (bot Discord) | Cliente del cuartel | Lee/escribe `agent_events`, `agent_comandos`, `agent_runs` en Neon. `agent_bridge.py` entrega DMs. `commands/agente.py` envia comandos. Neon Function `vantsbot` atiende `/agente` via Interactions endpoint |
+| `vants-faceit-webhook` | Productor de eventos | Publica en VANTS-BUS; el consumidor de `flask-agents` los escucha |
+| `vantsgames` (plataforma) | Vigilada por el agente | Chequeos de web, worker FACEIT, workflows, Neon, Vercel. Acciones contra GitHub Actions del repo de la plataforma |
+| `vants-dev-launcher` | Vigilada por el agente | Chequeo `launcher` revisa releases GitHub + `latest.yml` |
+| `vants-clips`, `vants-proteger` | Anuncio recibido | Sin codigo de agentes; el consumidor del bus los escucha si publican eventos |
+| `vants-hublauche` | Sin relacion verificada | No hay referencias en el codigo actual |
+
+## Pruebas disponibles
+
+| Script | Que prueba | Asserts | Efectos secundarios |
+| --- | --- | --- | --- |
+| `scripts/test_agente.js` | Cerebro (evaluacion, NLU), memoria RAM (dedupe, reabrir, comandos), nucleo (ciclo completo con mocks), acciones Vercel (redeploy, guarda anti-bucle), servidor Fastify (endpoints, auth) | 61 | Ninguno (fetch inyectado, memoria RAM, fastify.inject) |
+| `scripts/test_sandbox_agente.js` | Sandbox (validacion allowlist/denylist, ejecucion real con spawn, timeout, auditoria), memoria RAM (recordar/buscar/olvidar, expiracion, archivos, caps), herramientas directas (15 herramientas), intenciones de reglas, API `/api/v1/memoria` y `/api/v1/archivos` | 60 | Ejecuta comandos reales (`echo`, `node -e`, `sleep`, `cat`) en el entorno local via `child_process.spawn` |
+| `scripts/test_llm_agente.js` | Modo agéntico: catalogo tools, bucle de herramientas, encadenado, args JSON, herramienta desconocida, anti-bucle MAX_PASOS, API caida, interpretar(), narrar(), probar() | 28 | Levanta servidor HTTP falso en `127.0.0.1:puerto-aleatorio`; no hace peticiones externas |
+
+### Como limitar el alcance de las pruebas
+
+- Las pruebas del nucleo y del LLM usan implementaciones inyectadas (fetch falso, memoria RAM, fastify.inject). No tocan redes ni bases de datos reales.
+- Las pruebas del sandbox ejecutan comandos reales en el entorno local (`echo`, `node -e`, `sleep`, `cat`). No escriben en disco ni hacen peticiones de red. Timeout corto (800 ms en test de timeout).
+- Para ejecutar solo una suite: `node scripts/test_agente.js` desde `services/agent-service/`.
+- Para ejecutar todas: el workflow `tests-agente.yml` las corre en secuencia.
+
+## Limites, fallbacks y puntos no implementados
+
+| Limite | Descripcion |
+| --- | --- |
+| Sandbox no aislada | La sandbox es validacion + auditoria, no aislamiento de proceso completo. Corre en el mismo runner/local |
+| Sin `DATABASE_URL` | Memoria RAM: se pierde todo al reiniciar. No hay dedupe persistente entre ciclos |
+| Sin `AGENT_LLM_KEY` | Modo reglas unicamente. NLU local entiende aproximadamente 15 patrones fijos en espanol |
+| Sin `GITHUB_TOKEN` | Acciones automaticas quedan propuestas, nunca ejecutadas |
+| Sin `VERCEL_TOKEN` | Chequeo `vercel_deploy` sale "omitido", accion `redeploy_vercel` queda propuesta |
+| Max 2 redeploys Vercel por SHA | Guarda anti-bucle fija en `agent_events` |
+| Max 5 pasos LLM | `MAX_PASOS = 5` en `llm.js`. Despues fuerza respuesta final sin tools |
+| Max 256 KB por archivo sandbox | `agent_archivos` rechaza ficheros mayores |
+| Max 32 KB salida sandbox | stdout+stderr recortados; se indica en la respuesta |
+| Max 2000 caracteres mensaje chat | `endpoints/api.py` rechaza con 400 |
+| Max 10 turnos historial chat | Servidor recorta a los ultimos 10 |
+| VANTS-BUS en Vercel | No arranca como hilo daemon. Usar proceso independiente |
+| Cursor del bus | Persiste en archivo local `.vants-cursor.json`. No garantiza entrega exactamente una vez si hay multiples consumidores |
+| Healthz no prueba integraciones | `GET /healthz` solo verifica que el proceso responde. No ejecuta chequeos externos ni valida tokens de terceros |
+
+## Criterios de verificacion
+
+| Verificacion | Comando | Que confirma |
+| --- | --- | --- |
+| Web Flask viva | `curl http://127.0.0.1:8000/healthz` | Proceso Flask responde |
+| Chat modo reglas | `curl -H 'Content-Type: application/json' -d '{"mensaje":"hola"}' http://127.0.0.1:8000/api/chat` | Respuesta sin `AGENT_LLM_KEY` |
+| Servicio agente vivo | `curl http://127.0.0.1:8082/healthz` | Proceso Node responde con version, uptime, modo cerebro |
+| Auth funciona | `curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8082/api/v1/estado` | 200 con datos; 401 sin token o token incorrecto |
+| Ciclo manual | `cd services/agent-service && node cli.js ciclo` | Ejecuta chequeos, muestra JSON con estado, resumen, hallazgos, acciones |
+| Capa IA | `node cli.js ia` | JSON con `activa`, `modelo`, `url`, `ok`, `motivo` |
+| Tests nucleo | `node ../../scripts/test_agente.js` | 61 asserts PASS |
+| Tests sandbox | `node ../../scripts/test_sandbox_agente.js` | 60 asserts PASS |
+| Tests LLM | `node ../../scripts/test_llm_agente.js` | 28 asserts PASS |
+| Consumidor bus | `VANTS_BUS_URL=... VANTS_BUS_SECRET=... python vants_bus/consumer.py` | Log de eventos procesados; Ctrl+C para salir |
+
+## Tareas tipicas para agentes de IA
+
+| Tarea | Archivos a revisar | Variables a configurar |
+| --- | --- | --- |
+| Agregar un nuevo chequeo | `services/agent-service/chequeos.js`, `services/agent-service/cerebro.js` | Posiblemente nuevas `URLS_*` |
+| Agregar una nueva accion automatica | `services/agent-service/acciones.js`, `services/agent-service/cerebro.js` | Posiblemente nuevos tokens |
+| Agregar una nueva herramienta para LLM | `services/agent-service/herramientas.js`, `services/agent-service/nucleo.js` | Ninguna (logica interna) |
+| Cambiar el modelo LLM | No edita codigo | `AGENT_LLM_MODEL` |
+| Cambiar el proveedor LLM | No edita codigo | `AGENT_LLM_URL` |
+| Persistir memoria en produccion | No edita codigo | `DATABASE_URL` (postgres://) |
+| Proteger la API del agente | No edita codigo | `AGENT_TOKEN` |
+| Integrar nuevo evento del bus | `vants_bus/consumer.py::reaccionar`, `vants_bus/vants_bus_client.py::EVENTS` | `VANTS_BUS_URL`, `VANTS_BUS_SECRET` |
+| Modificar el chat de soporte | `soporte/ia.py`, `soporte/reglas.py`, `endpoints/api.py` | `AGENT_LLM_KEY` (opcional) |
 
 ## Fuentes
 
-Commit revisado: `3282d92`. Fuentes: `main.py`, `pyproject.toml`, `requirements.txt`, `endpoints/api.py`, `endpoints/web.py`, `services/agent-service/package.json`, `server.js`, archivos de ejemplo de entorno y `vants_bus/consumer.py`. No se ejecutaron servicios ni pruebas.
-
-El [bot de Discord](/repos/vantsbot-cf) integra el chat de soporte y la API del agente mediante configuraciones separadas.
+- Commit revisado: `3282d92` (HEAD, identico a revision previa).
+- Fuentes directas: `main.py`, `pyproject.toml`, `requirements.txt`, `endpoints/api.py`, `endpoints/web.py`, `soporte/ia.py`, `soporte/reglas.py`, `agentes/squad.py`, `services/agent-service/package.json`, `services/agent-service/server.js`, `services/agent-service/cli.js`, `services/agent-service/nucleo.js`, `services/agent-service/cerebro.js`, `services/agent-service/chequeos.js`, `services/agent-service/acciones.js`, `services/agent-service/memoria.js`, `services/agent-service/llm.js`, `services/agent-service/herramientas.js`, `services/agent-service/sandbox.js`, `vants_bus/consumer.py`, `vants_bus/vants_bus_client.py`, `vants_bus/README.md`, `bot-agente/agent_bridge.py`, `bot-agente/commands/agente.py`, `bot-agente/README.md`, `db/migrations/25-agente.sql`, `db/migrations/26-agent_sandbox.sql`, `scripts/test_agente.js`, `scripts/test_sandbox_agente.js`, `scripts/test_llm_agente.js`, `.github/workflows/agente.yml`, `.github/workflows/tests-agente.yml`, `.github/workflows/monitor.yml`, `monitor/monitor.js`, `.env.example`, `services/agent-service/.env.example`, `README.md`, `docs/AGENTE.md`.
+- No se ejecutaron servicios ni pruebas durante la revision.

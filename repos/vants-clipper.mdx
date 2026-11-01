@@ -1,0 +1,105 @@
+---
+title: "vants-clipper: alcance y configuración para agentes"
+sidebarTitle: "vants-clipper"
+description: "Distingue la configuración disponible de las funciones pendientes de VANTS Clipper, revisa TikTok y prepara una implementación sin publicar por accidente."
+keywords: ["VANTS Clipper", "TikTok", "OAuth", "clips", "agentes de IA", "configuración"]
+---
+
+[`vantsgames/vants-clipper`](https://github.com/vantsgames/vants-clipper) describe un agente de escritorio para recortar directos y publicar vídeos verticales. Sin embargo, la revisión `a7d3cd6`, consultada el 1 de noviembre de 2026, contiene documentación, configuración y un icono, **no la implementación ejecutable**. Para un agente de IA, esta diferencia determina qué puede comprobar y qué debe solicitar antes de integrar el proyecto.
+
+## Estado real del repositorio
+
+| Archivo presente | Qué aporta |
+| --- | --- |
+| `README.md` | Diseño de uso: clips de Razer Cortex, Kick, detección de actividad en chat, conversión vertical y publicación |
+| `TIKTOK_SETUP.md` | Preparación del portal de desarrolladores, OAuth, scopes y material de revisión |
+| `config.json` | Configuración de captura y plataformas; contiene valores sensibles que no deben reutilizarse |
+| `vants-clipper-icon-512.png` | Icono preparado para la aplicación |
+
+No aparecen `vants_clipper.py`, `requirements.txt` ni `vants-clipper.bat`, aunque el README indica que se utilicen. Tampoco aparecen pruebas, un manifiesto de dependencias Python o un manejador HTTP de callback.
+
+**Consecuencia:** no hay un arranque reproducible desde este commit. No presentes `pip install -r requirements.txt`, `python vants_clipper.py --chequeo` o `--test-convert` como comandos disponibles. Son instrucciones del README pendientes de corresponderse con archivos del repositorio.
+
+## Primera revisión de un agente
+
+Puedes obtener e inspeccionar el árbol sin instalar ni publicar nada:
+
+```bash
+git clone https://github.com/vantsgames/vants-clipper.git
+cd vants-clipper
+git rev-parse HEAD
+git ls-files
+```
+
+Lee los documentos antes de diseñar código nuevo. No vuelques `config.json` completo en una conversación, un informe o un registro: contiene secretos y rutas personales.
+
+## Configuración declarada, no validada por código
+
+Estos nombres existen en `config.json`. Al faltar el programa, no se puede confirmar su validación, sus unidades efectivas ni sus efectos en ejecución.
+
+| Campo | Intención documentada |
+| --- | --- |
+| `canal_kick` | Canal de origen |
+| `grabar_directo` | Activar grabación del directo |
+| `worker_url` | Destino externo de la integración |
+| `clipper_secret` | Secreto de integración, sin contrato de cabecera verificable |
+| `cortex_clip_dir` | Directorio local de clips |
+| `juego_default`, `titulo_template`, `descripcion` | Metadatos de publicación; la plantilla usa `{clip}` y `{juego}` |
+| `duracion_max` | Límite configurado de duración; el archivo contiene `177` |
+| `marca_texto`, `marca_fuente` | Configuración de marca visual |
+| `spike.umbral_min`, `spike.multiplicador`, `spike.cooldown_seg` | Parámetros declarados de detección de actividad: `6`, `2.5` y `90` |
+| `plataformas.youtube` | Activación, ruta del secreto OAuth, archivo de token y privacidad |
+| `plataformas.tiktok` | Activación, claves de aplicación, archivo de token y privacidad |
+| `plataformas.instagram` | Activación, token y datos de almacenamiento R2 |
+
+La configuración revisada activa YouTube con privacidad `public` y TikTok con `SELF_ONLY`; Instagram figura desactivado. Esos valores son datos del archivo, **no una prueba de publicación ni de aprobación de las cuentas**. Antes de ejecutar una implementación recuperada, desactiva las plataformas y confirma manualmente el destino.
+
+## Contrato TikTok que describe la guía
+
+`TIKTOK_SETUP.md` solicita:
+
+- Productos **Login Kit** y **Content Posting API**.
+- Scopes `user.info.basic` y `video.publish`.
+- Redirect URI `http://localhost:8777/callback`.
+- Icono, enlaces públicos de términos y privacidad, explicación de uso y vídeo de demostración.
+- Publicaciones de prueba con privacidad `SELF_ONLY`.
+
+La URI anterior es una **expectativa escrita**, no un endpoint implementado en este árbol. No abras el puerto ni anuncies un callback funcional hasta recuperar o construir el manejador y verificar la coincidencia de URI, el estado OAuth y el tratamiento de errores.
+
+El documento incluye afirmaciones de verificaciones anteriores. Esta revisión no ha repetido consultas a TikTok, no ha comprobado aprobaciones y no confirma límites o políticas actuales de TikTok, YouTube o Instagram. No copies una declaración de privacidad del documento como garantía del comportamiento de un programa ausente.
+
+## Seguridad antes de continuar
+
+<Warning>
+  La configuración versionada contiene valores con función de secreto. Rota las credenciales afectadas en sus proveedores y el secreto del clipper, retíralos de la configuración versionada y revisa su exposición en el historial. No basta con ocultarlos en esta guía. No se han modificado credenciales ni el repositorio de origen durante esta revisión.
+</Warning>
+
+Para una implementación futura, separa un ejemplo saneado de la configuración privada. No registres tokens OAuth, claves, rutas personales ni respuestas reales de cuentas. Las capturas para revisión de una aplicación deben ocultar credenciales.
+
+## Trabajo pendiente para agentes de IA
+
+| Tarea | Evidencia necesaria antes de darla por terminada |
+| --- | --- |
+| Recuperar el ejecutable | Entrada Python y dependencias versionadas, compatibles con los comandos documentados |
+| Capturar clips | Prueba con un archivo sintético y sin acceso a una cuenta real |
+| Convertir a vertical | Archivo de entrada, salida y parámetros reales de ffmpeg, con errores verificables |
+| Integrar OAuth | Callback implementado y pruebas de autorización, rechazo y renovación sin exponer tokens |
+| Publicar | Consentimiento explícito, cuenta de desarrollo y resultado observado en el proveedor |
+| Detección de hype | Algoritmo, unidades y pruebas de umbral, cooldown y duplicados |
+| Operación continua | Gestión de reinicios, estado persistente y recuperación documentada |
+
+No inventes códigos de error, formato de `estado.json`, opciones CLI ni contratos con `worker_url`: todavía no hay código que los establezca. El requisito Python 3.10+, ffmpeg y streamlink procede del README, no de dependencias instalables verificadas.
+
+## Relación con el catálogo de clips
+
+[`vants-clips`](/repos/vants-clips) almacena un manifest de clips destacados. Este repositorio no contiene un publicador a ese manifest ni demuestra una conexión automática con él. Captura, publicación en plataformas sociales y catálogo de destacados son responsabilidades diferentes.
+
+## Fuentes y alcance
+
+Revisión de archivos, sin instalaciones, conversiones, OAuth ni publicaciones ejecutadas:
+
+- [Árbol de `a7d3cd6`](https://github.com/vantsgames/vants-clipper/tree/a7d3cd6).
+- [README](https://github.com/vantsgames/vants-clipper/blob/a7d3cd6/README.md).
+- [Guía de preparación TikTok](https://github.com/vantsgames/vants-clipper/blob/a7d3cd6/TIKTOK_SETUP.md).
+
+Continúa con el [protocolo para agentes de IA](/agentes).

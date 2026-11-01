@@ -1,0 +1,142 @@
+---
+title: "sdk-alpic: servidor MCP y vistas con Skybridge"
+sidebarTitle: "sdk-alpic"
+description: "Entiende las herramientas MCP, vistas React, evaluaciones con modelos y despliegue declarado de la plantilla Alpic de la organización."
+keywords: ["Alpic", "Skybridge", "MCP", "React", "ChatGPT", "agentes de IA"]
+---
+
+[`vantsgames/sdk-alpic`](https://github.com/vantsgames/sdk-alpic) es una plantilla TypeScript de aplicaciones MCP con vistas React, basada en Skybridge y Alpic. La revisión `ed40594`, del 1 de noviembre de 2026, es el commit inicial. El paquete se llama `apps-sdk-template`, declara `private: true` y versión `0.0.1`: **no es evidencia de un SDK publicado ni de una integración con la plataforma VANTS**.
+
+## Arquitectura y archivos que debes conocer
+
+| Ruta | Responsabilidad |
+| --- | --- |
+| `src/index.ts` | Importa la aplicación y ejecuta `app.run()` |
+| `src/server.ts` | Crea Skybridge y registra herramientas y metadatos de la vista |
+| `src/helpers.ts` | Genera `useToolInfo` y `useCallTool` a partir del tipo de aplicación |
+| `src/views/onboarding.tsx` | Vista React de cuatro pasos |
+| `src/views/components/` | Navegación, progreso y ejemplos de uso del SDK |
+| `src/index.css` | Estilos compartidos |
+| `vite.config.ts` | Plugins Skybridge, React y Tailwind; alias `@` hacia `src` |
+| `evals/start.eval.ts` | Evaluación de selección de herramienta con un modelo Anthropic |
+| `Dockerfile` | Compilación y ejecución del servidor generado |
+| `alpic.json` | Referencia al esquema de configuración, sin destino de despliegue especificado |
+
+El flujo es: cliente MCP → herramienta registrada → `structuredContent` y contenido textual → vista React cuando el cliente la admite. La respuesta textual sigue siendo importante para clientes sin interfaz visual.
+
+<Note>
+  El README conserva rutas de otra estructura, como `server/server.ts` y `web/src/widgets/`. El árbol actual utiliza `src/server.ts` y `src/views/`. Un agente debe seguir los archivos existentes, no crear una segunda aplicación para imitar esas instrucciones antiguas.
+</Note>
+
+## Desarrollo local
+
+El campo `engines` exige Node.js `>=24.0.0`. Necesitas Git y npm.
+
+```bash
+git clone https://github.com/vantsgames/sdk-alpic.git
+cd sdk-alpic
+npm ci
+npm run dev
+```
+
+El README identifica las herramientas de desarrollo en `http://localhost:3000/` y el endpoint MCP en `http://localhost:3000/mcp`. Confirma la dirección en la salida del proceso. No se inició el servidor durante esta revisión.
+
+| Comando | Efecto declarado |
+| --- | --- |
+| `npm run dev` | `skybridge dev` |
+| `npm run dev:tunnel` | `skybridge dev --tunnel`; puede exponer el servidor fuera del equipo |
+| `npm run build` | Genera la compilación con Skybridge |
+| `npm start` | Inicia mediante `skybridge start` |
+| `npm run evals:types` | Comprueba tipos del proyecto de evaluaciones, sin emitir archivos |
+| `npm run evals` | Ejecuta Vitest sobre `evals`, con una llamada a un proveedor de modelos |
+| `npm run deploy` | `alpic deploy`; operación de publicación, no comprobación local |
+
+No uses túneles, evaluaciones con proveedor ni despliegues como primer paso automático. Requieren decisiones separadas sobre exposición, credenciales y coste.
+
+## Contrato de herramientas MCP
+
+### `start`
+
+Entrada: objeto con `name` opcional de tipo cadena, definido con Zod. No hay una entrada de dominio VANTS.
+
+Ejemplo de argumentos:
+
+```json
+{"name":"Ada"}
+```
+
+El manejador devuelve:
+
+```json
+{
+  "structuredContent": {"name":"Ada"},
+  "content": [{"type":"text","text":"User name: Ada"}],
+  "isError": false
+}
+```
+
+Si falta el nombre, el texto utiliza `friend`. La herramienta asocia la vista `onboarding` y declara anotaciones `readOnlyHint: true`, `destructiveHint: false` y `openWorldHint: false`. Estas anotaciones orientan al cliente; no son un sistema de permisos.
+
+La vista declara un dominio de ejemplo `https://skybridge.tech`, recursos de fuentes de Google y redirecciones a la documentación de Skybridge. Sustituye el dominio por el real y revisa la CSP antes de publicar. No interpretes ese dominio como un despliegue de VANTS.
+
+### `get-fortune-cookie`
+
+No declara campos de entrada. Selecciona aleatoriamente una frase de una lista fija, espera aproximadamente un segundo y devuelve:
+
+```json
+{
+  "structuredContent": {"prediction":"A pleasant surprise is waiting for you."},
+  "content": [{"type":"text","text":"A pleasant surprise is waiting for you."}],
+  "isError": false
+}
+```
+
+La frase es un ejemplo, no un resultado determinista. No consulta datos empresariales ni genera la predicción mediante un modelo. El modelo aparece en la evaluación, no en este manejador.
+
+Los errores de validación y del transporte dependen de Skybridge; `src/server.ts` no define un catálogo HTTP propio. No inventes endpoints REST para estas herramientas.
+
+## Cómo ampliar la aplicación
+
+1. Define la herramienta y su esquema en `src/server.ts`. Documenta entradas opcionales, errores y efectos reales.
+2. Devuelve datos estructurados y una explicación textual útil sin vista.
+3. Si necesita UI, registra el componente de `src/views/` y conserva los tipos generados en `src/helpers.ts`.
+4. Comprueba dominio y CSP si introduces recursos o redirecciones nuevas.
+5. Añade una evaluación que compruebe el comportamiento requerido, no solo el nombre de la herramienta.
+
+El componente `onboarding` recorre lectura de resultados, estado compartido, llamadas a herramientas y recursos finales. Una modificación visual no debe alterar silenciosamente el contrato usado por los agentes.
+
+## Evaluaciones: alcance y límites
+
+`evals/start.eval.ts` crea una conversación con `anthropic("claude-sonnet-4-5")`, envía un mensaje de inicio y comprueba que se haya llamado una vez a `start`.
+
+- Requiere acceso y credenciales válidas para el proveedor mediante su configuración habitual. No hay un gestor de secretos propio en el archivo.
+- La disponibilidad del modelo y los costes no están garantizados por su nombre en el código.
+- El texto enviado y los datos que añadas a la evaluación pueden salir hacia el proveedor.
+- La prueba no verifica todas las propiedades de la vista, los errores de entrada ni un despliegue real.
+- Esta revisión no ejecutó ni la evaluación ni el comprobador de tipos.
+
+## Contenedor y publicación
+
+El Dockerfile usa etapas de construcción y ejecución con una imagen Node 24. Instala desde el lockfile disponible, compila, elimina dependencias de desarrollo y copia `node_modules`, `dist` y `package.json`. La etapa final usa el usuario `node`, expone el puerto `3000` y ejecuta `node dist/__entry.js` directamente.
+
+Esto describe la receta, no un build comprobado ni un servicio desplegado. `alpic.json` solo incluye `$schema`; no demuestra organización de destino, URL pública o credenciales configuradas. Antes de publicar, identifica el proyecto real y revisa qué herramientas quedarán accesibles. No se observa una política de autenticación propia en los manejadores de ejemplo.
+
+## Lista de aceptación para agentes
+
+- La herramienta aparece en el registro y su esquema coincide con los argumentos documentados.
+- El resultado textual es útil sin React y el resultado estructurado mantiene los campos esperados.
+- Las pruebas no dependen de una frase aleatoria exacta.
+- Cualquier integración externa nueva documenta autorización, datos enviados y fallos.
+- El informe separa revisión de código, tipos, compilación, evaluación con proveedor y prueba del despliegue.
+
+## Fuentes
+
+Revisión estática del commit `ed40594`, sin instalaciones, procesos ni publicaciones:
+
+- [Servidor y contratos](https://github.com/vantsgames/sdk-alpic/blob/ed40594/src/server.ts).
+- [Vista de onboarding](https://github.com/vantsgames/sdk-alpic/blob/ed40594/src/views/onboarding.tsx).
+- [Scripts y dependencias](https://github.com/vantsgames/sdk-alpic/blob/ed40594/package.json).
+- [Evaluación](https://github.com/vantsgames/sdk-alpic/blob/ed40594/evals/start.eval.ts).
+- [Dockerfile](https://github.com/vantsgames/sdk-alpic/blob/ed40594/Dockerfile).
+
+Consulta también [el MCP del launcher](/repos/vantshublauche) y el [protocolo para agentes](/agentes). Son implementaciones diferentes; no se ha observado una conexión entre ellas.

@@ -29,7 +29,9 @@
         "pages": [
           "repos/flask-agents",
           "repos/vantsbot-cf",
-          "repos/vants-faceit-webhook"
+          "repos/vants-faceit-webhook",
+          "repos/vants-clipper",
+          "repos/sdk-alpic"
         ]
       },
       {

@@ -10,15 +10,15 @@ keywords:
   - "VANTS"
 ---
 
-El contenido revisado de [`vants-proteger`](https://github.com/vantsgames/vants-proteger) se limita a un monitor Node.js, un archivo de configuración de ejemplo, un workflow y el README. No contiene las aplicaciones web, de escritorio o Android mencionadas en partes del README.
+El contenido revisado de [`vants-proteger`](https://github.com/vantsgames/vants-proteger) se limita a un monitor Node.js, un archivo de configuracion de ejemplo, un workflow y el README. No contiene las aplicaciones web, de escritorio o Android mencionadas en partes del README.
 
 <Note>
-  El README conserva texto contradictorio y un separador `=======`. Esta guía describe los archivos presentes en el commit `d879d6a`, sin inferir que las aplicaciones mencionadas estén desplegadas o disponibles en este repositorio.
+  El README conserva texto contradictorio y un separador `=======`. Esta guia describe los archivos presentes en el commit `d879d6a`, sin inferir que las aplicaciones mencionadas esten desplegadas o disponibles en este repositorio.
 </Note>
 
 ## Ejecutar el monitor
 
-Necesitas Git y Node.js 20, la versión utilizada en el workflow. No hay dependencias npm que instalar para este script.
+Necesitas Git y Node.js 20, la version utilizada en el workflow. No hay dependencias npm que instalar para este script.
 
 ```bash
 git clone https://github.com/vantsgames/vants-proteger.git
@@ -27,7 +27,7 @@ node monitor/monitor.js
 ```
 
 <Warning>
-  El comando consulta servicios externos reales. Revisa los destinos de `CHECKS` antes de ejecutarlo en otro entorno. Esta guía no representa una comprobación actual de su disponibilidad.
+  El comando consulta servicios externos reales. Revisa los destinos de `CHECKS` antes de ejecutarlo en otro entorno. Esta guia no representa una comprobacion actual de su disponibilidad.
 </Warning>
 
 ## Comprobaciones
@@ -39,36 +39,80 @@ node monitor/monitor.js
 
 El script sigue redirecciones, comprueba un estado HTTP de 200 a 399 y busca los marcadores en los primeros 20 000 caracteres del cuerpo. Imprime el resultado, el estado HTTP y el tiempo de respuesta de cada consulta.
 
-Si una comprobación falla, finaliza con código `1`. Si todas pasan, finaliza normalmente. Los tiempos impresos son mediciones de esa ejecución, no objetivos de rendimiento.
+Si una comprobacion falla, finaliza con codigo `1`. Si todas pasan, finaliza normalmente. Los tiempos impresos son mediciones de esa ejecucion, no objetivos de rendimiento.
 
-El marcador del bot solo comprueba la presencia del texto `"ok":true`. No interpreta el resto de su diagnóstico ni garantiza que las tablas D1 o integraciones estén disponibles.
+El marcador del bot solo comprueba la presencia del texto `"ok":true`. No interpreta el resto de su diagnostico ni garantiza que las tablas D1 o integraciones esten disponibles.
 
-## Configuración
+## Configuracion
 
-Los destinos se definen en `CHECKS` y el tiempo límite en `TIMEOUT = 15000` dentro de `monitor/monitor.js`.
+Los destinos se definen en `CHECKS` y el tiempo limite en `TIMEOUT = 15000` dentro de `monitor/monitor.js`.
 
 `monitor/config.example.json` contiene `webhookUrl`, `slowMs` y `timeoutMs`, pero el script no lee ese archivo. Modificarlo no cambia los destinos, no aplica un umbral de latencia ni activa notificaciones por webhook.
 
-Para adaptar el monitor, cambia explícitamente las constantes del script y revisa el resultado antes de actualizar la programación.
+Para adaptar el monitor, cambia explicitamente las constantes del script y revisa el resultado antes de actualizar la programacion.
 
 ## GitHub Actions e incidentes
 
 `.github/workflows/monitor.yml` define:
 
-- Programación `*/30 * * * *` y activación manual mediante `workflow_dispatch`.
-- Preparación de Node.js 20 y ejecución del monitor.
-- Apertura o actualización de un issue con etiqueta `monitor-caida` si hay fallo.
-- Comentario de recuperación y cierre de los issues abiertos con esa etiqueta cuando vuelve a pasar.
+- Programacion `*/30 * * * *` y activacion manual mediante `workflow_dispatch`.
+- Preparacion de Node.js 20 y ejecucion del monitor.
+- Apertura o actualizacion de un issue con etiqueta `monitor-caida` si hay fallo.
+- Comentario de recuperacion y cierre de los issues abiertos con esa etiqueta cuando vuelve a pasar.
 - Permisos `contents: read` e `issues: write`.
 
-La programación declarada no demuestra que el workflow esté habilitado o ejecutándose actualmente. Comprueba su historial en GitHub Actions para conocer resultados reales.
+La programacion declarada no demuestra que el workflow este habilitado o ejecutandose actualmente. Comprueba su historial en GitHub Actions para conocer resultados reales.
 
-## Límites y fuentes
+## Contrato de datos
 
-Este repositorio comprueba respuestas HTTP; no implementa una API, protección antitrampas ni un sistema completo de seguridad. Tampoco prueba autenticación, operaciones de escritura o la integridad de los datos.
+El monitor no almacena datos persistentes. Solo emite logs de texto con estado, codigo HTTP y latencia. No recolecta informacion de usuarios, ni accede a bases de datos, ni modifica el estado de los servicios que consulta.
 
-Fuentes del commit `d879d6a`: `README.md`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. No se ejecutaron servicios ni pruebas.
+| Aspecto | Regla |
+| --- | --- |
+| Datos de entrada | Ninguno; solo constantes de URL y marcadores en codigo |
+| Datos de salida | Logs de consola (estado, HTTP, ms, detalle de error) |
+| Retencion | Ninguna; los logs viven solo en la ejecucion del workflow |
+| Permisos del workflow | `contents: read`, `issues: write` |
+| Etiqueta de incidente | `monitor-caida` con color `d73a4a` |
+
+## Monitor, configuracion y CI para IA
+
+El script esta disenado para ser ejecutado por un workflow de GitHub Actions, pero tambien puede correr localmente. No requiere variables de entorno ni archivos de configuracion externos.
+
+### Puntos de edicion para un agente
+
+Si un flujo de IA necesita adaptar este monitor, estos son los puntos exactos:
+
+1. **`CHECKS` en `monitor/monitor.js`**: anade, elimina o modifica destinos. Cada entrada necesita `id`, `label`, `url` y opcionalmente `markers`.
+2. **`TIMEOUT` en la linea 22 del script**: ajusta el tiempo limite en milisegundos.
+3. **`.github/workflows/monitor.yml`**: modifica la expresion cron, el `timeout-minutes` del job (10 min por defecto) o los pasos de manejo de incidentes.
+
+El archivo `monitor/config.example.json` es documentacion sin efecto en tiempo de ejecucion.
+
+### Criterios de aceptacion del monitor
+
+- Debe salir con codigo `0` cuando todos los checks respondan HTTP 200-399 y contengan sus marcadores.
+- Debe salir con codigo `1` si al menos un check falla por estado HTTP, timeout o marcador ausente.
+- El workflow debe abrir un issue nuevo con etiqueta `monitor-caida` si no existe ninguno abierto.
+- Si ya existe un issue abierto con esa etiqueta, debe anadir un comentario con el log de la ejecucion fallida.
+- Al recuperarse, debe comentar "Servicio recuperado" y cerrar todos los issues abiertos con `monitor-caida`.
+- No debe requerir secretos adicionales ni tokens de terceros.
+
+## Riesgos y limitaciones
+
+| Riesgo | Impacto | Mitigacion observada |
+| --- | --- | --- |
+| Marcador fragil del bot | `"ok":true` como texto plano puede coincidir en otro contexto | El check limita la busqueda a los primeros 20 000 caracteres |
+| Timeout fijo de 15 s | Falso negativo en condiciones de red degradadas | Editar `TIMEOUT` directamente en el script |
+| Configuracion no funcional | `config.example.json` no se carga | Documentar que los cambios deben hacerse en el codigo fuente |
+| README contradictorio | El texto incluye referencias a apps no presentes en el arbol | Esta guia se limita a los archivos verificados del commit `d879d6a` |
+| Sin autenticacion en los checks | Solo valida disponibilidad publica | No pretende verificar funcionalidades protegidas por login |
+| Posible falso positivo de recuperacion | Si un check es intermitente, el workflow puede abrir y cerrar issues repetidamente | No se observa deduplicacion ni ventana de estabilidad |
+
+## Trazabilidad y fuentes
+
+Commit `d879d6a`: `README.md`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. No se ejecutaron servicios ni pruebas.
 
 - [vantsgames](/repos/vantsgames): plataforma web consultada por el monitor.
-- [vantsbot-cf](/repos/vantsbot-cf): código del bot y su diagnóstico de salud.
-- [vants-clips](/repos/vants-clips): monitor específico de la página de clips.
+- [vantsbot-cf](/repos/vantsbot-cf): codigo del bot y su diagnostico de salud.
+- [vants-clips](/repos/vants-clips): monitor especifico de la pagina de clips.

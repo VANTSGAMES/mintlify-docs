@@ -1,20 +1,20 @@
 ---
-title: "vants-clips: índice de clips destacados"
+title: "vants-clips: indice de clips destacados"
 sidebarTitle: "vants-clips"
-description: "Consulta la estructura del manifest de clips, sus metadatos y enlaces de vídeo, y el monitor de disponibilidad incluido en vants-clips."
+description: "Consulta la estructura del manifest de clips, sus metadatos y enlaces de video, y el monitor de disponibilidad incluido en vants-clips."
 keywords:
   - "clips"
   - "manifest"
-  - "vídeos"
+  - "videos"
   - "GitHub Releases"
   - "VANTS"
 ---
 
-[`vants-clips`](https://github.com/vantsgames/vants-clips) contiene `manifest.json`, un índice de clips destacados, y un monitor de la página de clips. No incluye un servidor de subida.
+[`vants-clips`](https://github.com/vantsgames/vants-clips) contiene `manifest.json`, un indice de clips destacados, y un monitor de la pagina de clips. No incluye un servidor de subida.
 
-La implementación de gestión de clips se encuentra en `vants-server/worker.js` de [vantsgames](/repos/vantsgames). El código revisado utiliza GitHub Releases y un manifest, pero apunta a `VANTSNET/vants-clips`; revisa ese destino antes de asumir que escribe en este repositorio.
+La implementacion de gestion de clips se encuentra en `vants-server/worker.js` de [vantsgames](/repos/vantsgames). El codigo revisado utiliza GitHub Releases y un manifest, pero apunta a `VANTSNET/vants-clips`; revisa ese destino antes de asumir que escribes en este repositorio.
 
-## Leer el índice
+## Leer el indice
 
 Clona el repositorio y consulta el archivo local:
 
@@ -37,14 +37,14 @@ El archivo es un array de objetos con estos campos observados:
 | Campo | Tipo | Contenido |
 | --- | --- | --- |
 | `id` | string | Identificador del clip |
-| `sub` | string | Identificador del usuario en autenticación |
+| `sub` | string | Identificador del usuario en autenticacion |
 | `username`, `nick` | string | Nombres asociados al usuario |
-| `titulo`, `juego` | string | Título y juego |
-| `ext` | string | Extensión del vídeo |
+| `titulo`, `juego` | string | Titulo y juego |
+| `ext` | string | Extension del video |
 | `fecha` | string | Fecha en formato ISO 8601 |
-| `dur` | number | Duración en segundos |
-| `tam` | number | Tamaño en bytes |
-| `video`, `thumb` | string | URLs del vídeo y la miniatura |
+| `dur` | number | Duracion en segundos |
+| `tam` | number | Tamano en bytes |
+| `video`, `thumb` | string | URLs del video y la miniatura |
 
 <Warning>
   `sub`, `username` y `nick` pueden identificar a una persona. No copies valores reales en ejemplos ni publiques metadatos de usuarios sin revisar su tratamiento y visibilidad.
@@ -69,24 +69,82 @@ Ejemplo completamente ficticio de una entrada:
 }
 ```
 
-Los enlaces almacenados en la revisión consultada usan GitHub Releases bajo `VANTSgg`. No se comprobó su disponibilidad ni una redirección hacia la organización actual. Los vídeos no están incluidos como archivos en el árbol revisado.
+Los enlaces almacenados en la revision consultada usan GitHub Releases bajo `VANTSgg`. No se comprobo su disponibilidad ni una redireccion hacia la organizacion actual. Los videos no estan incluidos como archivos en el arbol revisado.
 
 ## Monitor de disponibilidad
 
-Con Node.js 20, la versión utilizada por el workflow, ejecuta desde la raíz:
+Con Node.js 20, la version utilizada por el workflow, ejecuta desde la raiz:
 
 ```bash
 node monitor/monitor.js
 ```
 
-El comando realiza una petición real a `https://vants.vants.workers.dev/clips.html`. Considera correcto un estado HTTP de 200 a 399 y termina con código `1` si falla. Informa estado y tiempo de respuesta; no valida cada vídeo o miniatura del manifest.
+El comando realiza una peticion real a `https://vants.vants.workers.dev/clips.html`. Considera correcto un estado HTTP de 200 a 399 y termina con codigo `1` si falla. Informa estado y tiempo de respuesta; no valida cada video o miniatura del manifest.
 
 El script fija `TIMEOUT = 15000`. No carga `monitor/config.example.json`, por lo que cambiar `slowMs`, `timeoutMs` o `webhookUrl` en ese ejemplo no modifica su comportamiento.
 
-`.github/workflows/monitor.yml` declara una ejecución cada 30 minutos y activación manual. Usa permisos `contents: read` e `issues: write` para abrir, actualizar o cerrar incidentes con la etiqueta `monitor-caida`.
+`.github/workflows/monitor.yml` declara una ejecucion cada 30 minutos y activacion manual. Usa permisos `contents: read` e `issues: write` para abrir, actualizar o cerrar incidentes con la etiqueta `monitor-caida`.
 
-## Fuentes
+## Contrato de datos
 
-Commit `6f8100e`: `README.md`, `manifest.json`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. La relación con la plataforma se contrastó con `vants-server/worker.js` del commit `96dbfcb` de `vantsgames`. No se ejecutaron monitores ni pruebas.
+El manifest funciona como un indice publico de referencia. No almacena los videos en el repositorio; solo conserva metadatos y URLs de descarga. Los datos personales (`sub`, `username`, `nick`) se incluyen para vincular cada clip con su autor, pero no deben difundirse fuera del contexto de la plataforma.
+
+| Aspecto | Regla |
+| --- | --- |
+| Formato de salida | Array JSON con los campos documentados |
+| Tamano maximo del manifest | 60 entradas (limite observado en `vants-server/worker.js`) |
+| Fuente de verdad | GitHub Releases del repo `VANTSNET/vants-clips` |
+| Cache de lectura | 60 segundos en el worker (`FEAT_TTL_MS = 60_000`) |
+| Video maximo | 48 MB (`MAX_CLIP_BYTES`) |
+| Miniatura maxima | 400 KB (`MAX_THUMB_BYTES`) |
+
+## Monitor, configuracion y CI para IA
+
+El monitor de este repositorio es un script Node.js portable que cualquier agente puede ejecutar. No requiere dependencias npm ni variables de entorno ocultas. La configuracion se declara en codigo, no en archivos externos.
+
+### Puntos de edicion para un agente
+
+Si necesitas modificar el monitor desde un flujo de IA, estos son los puntos exactos:
+
+1. **`CHECKS` en `monitor/monitor.js`**: cambia la URL o anade mas destinos. Cada check necesita `id`, `label`, `url` y opcionalmente `markers` (texto que debe aparecer en la respuesta).
+2. **`TIMEOUT` en la misma linea 15**: ajusta el tiempo limite en milisegundos.
+3. **`.github/workflows/monitor.yml`**: modifica la expresion cron (`*/30 * * * *`) o el `timeout-minutes` del job.
+
+El archivo `monitor/config.example.json` existe como documentacion, pero el script no lo lee. Modificarlo no tiene efecto.
+
+### Criterios de aceptacion del monitor
+
+- El script debe salir con codigo `0` cuando `https://vants.vants.workers.dev/clips.html` responde con HTTP 200-399.
+- Debe salir con codigo `1` si la peticion falla, supera el timeout o recibe un estado HTTP >= 400.
+- El workflow debe abrir un issue con etiqueta `monitor-caida` cuando el monitor falle.
+- El workflow debe cerrar los issues abiertos con esa etiqueta cuando el monitor vuelva a pasar.
+- No se requiere validacion de contenido del manifest ni disponibilidad de cada video.
+
+## Riesgos y limitaciones
+
+| Riesgo | Impacto | Mitigacion observada |
+| --- | --- | --- |
+| URLs de releases obsoletas (`VANTSgg`) | Los videos pueden dejar de cargar si GitHub deja de redirigir | El worker apunta a `VANTSNET/vants-clips` para nuevos clips |
+| Datos personales en el manifest | Exposicion de identificadores de usuario | El manifest es publico; la decision de visibilidad recae en la plataforma |
+| Sin validacion de integridad de video | El monitor no detecta si un MP4 esta corrupto | No mitigado en este repo; requiere verificacion externa |
+| Timeout fijo de 15 s | Falso negativo en redes lentas | Editar `TIMEOUT` directamente en el script |
+| Configuracion no cargada desde JSON | Cambiar `config.example.json` no afecta el comportamiento | Documentar el punto de edicion real (`TIMEOUT` en el script) |
+
+## Relacion con vants-clipper
+
+[`vants-clipper`](https://github.com/vantsgames/vants-clipper) es un agente de escritorio independiente. Su repositorio contiene unicamente:
+
+- `README.md` con instrucciones de instalacion y uso.
+- `TIKTOK_SETUP.md` con la guia de configuracion en TikTok Developers.
+- `config.json` de ejemplo con parametros de plataformas (YouTube, TikTok, Instagram).
+- `vants-clipper-icon-512.png` para el registro de la app.
+
+No se observo integracion directa entre `vants-clipper` y `vants-clips`. El clipper publica en YouTube Shorts, TikTok e Instagram Reels; `vants-clips` almacena los clips destacados por los jugadores desde la arena web. Son dos flujos separados: uno automatiza la produccion de contenido vertical, el otro indexa los momentos destacados de la comunidad.
+
+## Trazabilidad y fuentes
+
+Commit `6f8100e`: `README.md`, `manifest.json`, `monitor/monitor.js`, `monitor/config.example.json` y `.github/workflows/monitor.yml`. La relacion con la plataforma se contrasto con `vants-server/worker.js` del repositorio `vantsgames` (commit `77210d6`, HEAD al momento de la revision). No se ejecutaron monitores ni pruebas.
+
+Informacion adicional de `vants-clipper` obtenida de su commit `a7d3cd6`: `README.md`, `TIKTOK_SETUP.md`, `config.json` y `vants-clipper-icon-512.png`.
 
 Consulta [vants-proteger](/repos/vants-proteger) para el monitor de la web y del bot.
