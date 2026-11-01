@@ -42,7 +42,6 @@
       {
         "group": "Documentación",
         "pages": [
-          "repos/docs",
           "repos/mintlify-docs"
         ]
       }
